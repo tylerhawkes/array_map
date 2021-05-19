@@ -1,0 +1,23 @@
+[package]
+name = "array_map_derive"
+version = "0.1.0"
+authors = ["Tyler Hawkes <tyler.hawkes@gmail.com>"]
+edition = "2018"
+resolver = "2"
+description = "Map backed array for fixed size keys with O(1) performance"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/tylerhawkes/array_map"
+documentation = "https://docs.rs/array_map_derive"
+readme = "../README.md"
+keywords = ["no_std", "no-std", "data", "structure", "map"]
+categories = ["data-structures", "embedded", "no-std"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "1", default-features = false, features = ["parsing", "derive", "proc-macro", "printing"] }
+quote = { version = "1", default-features = false }
+proc-macro2 = { version = "1", default-features = false }
