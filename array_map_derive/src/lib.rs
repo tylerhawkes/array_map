@@ -4,11 +4,11 @@ use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::{Data, DeriveInput, Ident};
 
-/// Derive macro for the [Indexable](https://docs.rs/array_map/trait.Indexable.html) trait.
+/// Derive macro for the [Indexable](https://docs.rs/array_map/latest/array_map/trait.Indexable.html) trait.
 ///
 /// This properly derives the trait and upholds all the safety invariants.
 ///
-/// Variants can be disabled by adding `#[index(disabled)]`. If [Indexable::index()](https://docs.rs/array_map/trait.Indexable.html#tymethod.index) is ever called
+/// Variants can be disabled by adding `#[index(disabled)]`. If [Indexable::index()](https://docs.rs/array_map/latest/array_map/trait.Indexable.html#tymethod.index) is ever called
 /// on that variant then it will panic.
 #[proc_macro_derive(Indexable, attributes(index))]
 pub fn indexable(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -99,6 +99,7 @@ fn derive(ast: &DeriveInput) -> syn::Result<TokenStream> {
 
           #[allow(missing_docs)]
           impl #impl_generics #name #ty_generics #where_clause {
+              #[inline]
               pub fn iter() -> #iter_name #ty_generics {
                   #iter_name {
                       idx: 0,
@@ -106,6 +107,8 @@ fn derive(ast: &DeriveInput) -> syn::Result<TokenStream> {
                       marker: ::core::marker::PhantomData,
                   }
               }
+              #[inline]
+              #[must_use]
               pub const fn count() -> usize {
                   #variant_count
               }
@@ -172,14 +175,17 @@ fn derive(ast: &DeriveInput) -> syn::Result<TokenStream> {
           }
 
           #[allow(unsafe_code)]
-          unsafe impl #impl_generics Indexable for #name #ty_generics #where_clause {
+          unsafe impl #impl_generics array_map::Indexable for #name #ty_generics #where_clause {
               const SIZE: usize = Self::count();
               type Iter = #iter_name #ty_generics;
+              #[inline]
+              #[must_use]
               fn index(self) -> usize {
                   match self {
                       #(#to_index),*
                   }
               }
+              #[inline]
               fn iter() -> Self::Iter {
                   Self::iter()
               }

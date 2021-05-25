@@ -114,12 +114,10 @@ impl<K, V, const N: usize> ArrayMap<K, V, N> {
 
 impl<K: Indexable, V, const N: usize> core::iter::FromIterator<(K, V)> for ArrayMap<K, Option<V>, N> {
   fn from_iter<I: IntoIterator<Item = (K, V)>>(iter: I) -> Self {
-    #[allow(unsafe_code)]
-    let iter = iter.into_iter();
     let mut this = Self::from_closure(|_| None);
-    iter.for_each(|(t, u)| {
+    for (t, u) in iter {
       this.array[t.index()] = Some(u);
-    });
+    }
     this
   }
 }
@@ -131,17 +129,16 @@ impl<K: Indexable, V: Default, const N: usize> Default for ArrayMap<K, V, N> {
   }
 }
 
-impl<K, V, const N: usize> core::ops::Deref for ArrayMap<K, V, N> {
-  type Target = [V; N];
+impl<K, V, const N: usize> core::convert::AsRef<[V; N]> for ArrayMap<K, V, N> {
   #[inline(always)]
-  fn deref(&self) -> &Self::Target {
+  fn as_ref(&self) -> &[V; N] {
     &self.array
   }
 }
 
-impl<K, V, const N: usize> core::ops::DerefMut for ArrayMap<K, V, N> {
+impl<K, V, const N: usize> core::convert::AsMut<[V; N]> for ArrayMap<K, V, N> {
   #[inline(always)]
-  fn deref_mut(&mut self) -> &mut Self::Target {
+  fn as_mut(&mut self) -> &mut [V; N] {
     &mut self.array
   }
 }
@@ -171,16 +168,18 @@ mod test {
 
   fn send_sync_traits<
     K: Indexable,
+    V,
     T: Send
       + Sync
+      + Unpin
       + Default
       + Clone
       + Copy
       + PartialEq
       + Eq
       + core::fmt::Debug
-      + core::ops::Deref
-      + core::ops::DerefMut
+      + core::convert::AsRef<[V; N]>
+      + core::convert::AsMut<[V; N]>
       + core::ops::Index<K>
       + core::ops::IndexMut<K>,
     const N: usize,
@@ -189,13 +188,13 @@ mod test {
 
   fn test_traits<
     I: Indexable + Copy + PartialEq + core::fmt::Debug,
-    V: Send + Sync + Default + Clone + Copy + PartialEq + Eq + core::fmt::Debug,
+    V: Send + Sync + Unpin + Default + Clone + Copy + PartialEq + Eq + core::fmt::Debug,
     F: FnMut(I) -> V,
     const N: usize,
   >(
     mut f: F,
   ) {
-    send_sync_traits::<I, ArrayMap<I, V, N>, N>();
+    send_sync_traits::<I, V, ArrayMap<I, V, N>, N>();
     let mut whole_map = ArrayMap::<I, V, N>::default();
     for i in I::iter() {
       assert_eq!(whole_map[i], V::default());
@@ -214,6 +213,5 @@ mod test {
     test_traits::<bool, Option<(u8, u8)>, _, { bool::SIZE }>(|b| Some((b as u8 + 1, b as u8)));
     test_traits::<u8, u32, _, { u8::SIZE }>(|u| u as u32 + 1);
     test_traits::<Lowercase, &'static str, _, { Lowercase::SIZE }>(|_| "abc");
-    test_traits::<Ten, u8, _, { Ten::count() }>(|i| i as u8);
   }
 }

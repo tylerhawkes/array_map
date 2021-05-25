@@ -1,4 +1,4 @@
-use crate::Indexable;
+use crate::{ArrayMap, Indexable};
 use core::marker::PhantomData;
 
 /// A set backed by an array. All possible keys must be known statically.
@@ -18,19 +18,6 @@ pub const fn set_size(size: usize) -> usize {
     size >> 3
   } else {
     (size >> 3) + 1
-  }
-}
-
-impl<K: Indexable, const N: usize> ArraySet<K, N> {
-  /// Creates a new, empty [`ArraySet`]
-  #[inline]
-  pub fn new() -> Self {
-    assert_eq!(set_size(K::SIZE), N);
-    debug_assert_eq!(K::SIZE, K::iter().count());
-    Self {
-      set: [0; N],
-      phantom: PhantomData,
-    }
   }
 }
 
@@ -66,6 +53,11 @@ impl<K: core::fmt::Debug + Indexable, const N: usize> core::fmt::Debug for Array
 }
 
 impl<K: Indexable, const N: usize> ArraySet<K, N> {
+  /// Creates a new, empty [`ArraySet`]
+  #[inline]
+  pub fn new() -> Self {
+    Self::empty()
+  }
   #[inline]
   fn query<R>(&self, t: K, f: impl FnOnce(u8, u8) -> R) -> R {
     let index = t.index();
@@ -115,6 +107,159 @@ impl<K: Indexable, const N: usize> ArraySet<K, N> {
       .zip(K::iter())
       .filter_map(move |(q, t)| if self.contains(q) { Some(t) } else { None })
   }
+  /// Returns whether this set contains any keys
+  #[inline]
+  #[must_use]
+  pub fn is_empty(&self) -> bool {
+    !self.set.iter().copied().any(|b| b != 0)
+  }
+  /// Returns whether all possible keys are in the set
+  #[inline]
+  #[must_use]
+  pub fn is_full(&self) -> bool {
+    self.set.iter().copied().map(u8::count_ones).sum::<u32>() as usize == N
+  }
+  /// Returns a new empty set
+  #[inline(always)]
+  fn set_excess_zero(&mut self) {
+    if K::SIZE.trailing_zeros() < 3 {
+      self.set[N - 1] &= Self::last_mask();
+    }
+  }
+  fn last_mask() -> u8 {
+    if K::SIZE.trailing_zeros() < 3 {
+      let used_last = K::SIZE & 0x7;
+      !0_u8 >> (8 - used_last)
+    } else {
+      !0
+    }
+  }
+  /// Creates a new, empty [`ArraySet`]
+  #[inline]
+  pub fn empty() -> Self {
+    assert_eq!(set_size(K::SIZE), N);
+    debug_assert_eq!(K::SIZE, K::iter().count());
+    Self {
+      set: [0; N],
+      phantom: PhantomData,
+    }
+  }
+  /// Creates a new, full [`ArraySet`]
+  #[inline]
+  pub fn full() -> Self {
+    assert_eq!(set_size(K::SIZE), N);
+    debug_assert_eq!(K::SIZE, K::iter().count());
+    let mut set = Self { set: [u8::MAX; N], phantom: PhantomData };
+    set.set_excess_zero();
+    set
+  }
+}
+
+impl<K: Indexable, const N: usize> core::iter::FromIterator<K> for ArraySet<K, N> {
+  fn from_iter<I: IntoIterator<Item = K>>(iter: I) -> Self {
+    let mut set = Self::new();
+    for k in iter {
+      set.insert(k);
+    }
+    set
+  }
+}
+
+impl<K: Indexable, const N: usize> core::ops::Not for ArraySet<K, N> {
+  type Output = Self;
+
+  fn not(mut self) -> Self::Output {
+    for byte in self.set.iter_mut() {
+      *byte = !*byte;
+    }
+    self.set_excess_zero();
+    self
+  }
+}
+
+impl<K: Indexable, const N: usize> core::ops::BitAnd for ArraySet<K, N> {
+  type Output = Self;
+
+  fn bitand(mut self, rhs: Self) -> Self::Output {
+    for (l, r) in self.set.iter_mut().zip(rhs.set.iter().copied()) {
+      *l &= r;
+    }
+    self.set_excess_zero();
+    self
+  }
+}
+
+impl<K: Indexable, const N: usize> core::ops::BitOr for ArraySet<K, N> {
+  type Output = Self;
+
+  fn bitor(mut self, rhs: Self) -> Self::Output {
+    for (l, r) in self.set.iter_mut().zip(rhs.set.iter().copied()) {
+      *l |= r;
+    }
+    self.set_excess_zero();
+    self
+  }
+}
+
+impl<K: Indexable, const N: usize> core::ops::BitXor for ArraySet<K, N> {
+  type Output = Self;
+
+  fn bitxor(mut self, rhs: Self) -> Self::Output {
+    for (l, r) in self.set.iter_mut().zip(rhs.set.iter().copied()) {
+      *l ^= r;
+    }
+    self.set_excess_zero();
+    self
+  }
+}
+
+impl<K: Indexable, const M: usize, const S: usize> From<crate::ArrayMap<K, bool, M>> for ArraySet<K, S> {
+  fn from(m: ArrayMap<K, bool, M>) -> Self {
+    let mut set = ArraySet::new();
+    for (k, &v) in m.iter() {
+      if v {
+        set.insert(k);
+      }
+    }
+    set
+  }
+}
+
+impl<K: Indexable, const M: usize, const S: usize> From<ArraySet<K, S>> for crate::ArrayMap<K, bool, M> {
+  fn from(s: ArraySet<K, S>) -> Self {
+    let mut map = ArrayMap::default();
+    for k in s.keys() {
+      map[k] = true;
+    }
+    map
+  }
+}
+
+#[cfg(feature = "std")]
+mod atomics {
+  use crate::{ArrayMap, ArraySet, Indexable};
+  use core::sync::atomic::{AtomicBool, Ordering};
+  impl<K: Indexable, const M: usize, const S: usize> From<&crate::ArrayMap<K, AtomicBool, M>> for ArraySet<K, S> {
+    fn from(m: &ArrayMap<K, AtomicBool, M>) -> Self {
+      let mut set = ArraySet::new();
+      for (k, v) in m.iter() {
+        if v.load(Ordering::SeqCst) {
+          set.insert(k);
+        }
+      }
+      set
+    }
+  }
+
+  impl<K: Indexable, const M: usize, const S: usize> From<ArraySet<K, S>> for crate::ArrayMap<K, AtomicBool, M> {
+    fn from(s: ArraySet<K, S>) -> Self {
+      let mut map = ArrayMap::<K, AtomicBool, M>::default();
+      for k in s.keys() {
+        *map[k].get_mut() = true;
+      }
+      map
+    }
+  }
 }
 
 #[cfg(test)]
@@ -149,6 +294,5 @@ mod test {
     test_traits::<bool, { crate::set_size(bool::SIZE) }>();
     test_traits::<u8, { crate::set_size(u8::SIZE) }>();
     test_traits::<Lowercase, { crate::set_size(Lowercase::SIZE) }>();
-    test_traits::<Ten, { crate::set_size(Ten::count()) }>();
   }
 }
