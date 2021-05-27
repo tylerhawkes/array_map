@@ -53,9 +53,9 @@ mod set;
 
 #[cfg(feature = "array_map_derive")]
 pub use array_map_derive::Indexable;
+use core::convert::TryInto;
 pub use map::*;
 pub use set::*;
-use core::convert::TryInto;
 
 /// Allows mapping from a type to an index
 ///
@@ -143,7 +143,7 @@ unsafe impl Indexable for u8 {
 #[allow(unsafe_code)]
 unsafe impl ReverseIndexable for u8 {
   fn from_index(u: usize) -> Self {
-    u.try_into().unwrap_or_else(|_|panic!("Invalid u8 index provided {}", u))
+    u.try_into().unwrap_or_else(|_| panic!("Invalid u8 index provided {}", u))
   }
 }
 
@@ -164,7 +164,7 @@ unsafe impl Indexable for u16 {
 #[allow(unsafe_code)]
 unsafe impl ReverseIndexable for u16 {
   fn from_index(u: usize) -> Self {
-    u.try_into().unwrap_or_else(|_|panic!("Invalid u16 index provided {}", u))
+    u.try_into().unwrap_or_else(|_| panic!("Invalid u16 index provided {}", u))
   }
 }
 
@@ -212,8 +212,8 @@ unsafe impl<const N: u8> Indexable for IndexU8<N> {
 #[allow(unsafe_code)]
 unsafe impl<const N: u8> ReverseIndexable for IndexU8<N> {
   fn from_index(u: usize) -> Self {
-    let u: u8 = u.try_into().unwrap_or_else(|_|panic!("Invalid IndexU8 index provided {}", u));
-    Self::new(u).unwrap_or_else(||panic!("Invalid IndexU8 index provided {}", u))
+    let u: u8 = u.try_into().unwrap_or_else(|_| panic!("Invalid IndexU8 index provided {}", u));
+    Self::new(u).unwrap_or_else(|| panic!("Invalid IndexU8 index provided {}", u))
   }
 }
 
@@ -261,8 +261,8 @@ unsafe impl<const N: u16> Indexable for IndexU16<N> {
 #[allow(unsafe_code)]
 unsafe impl<const N: u16> ReverseIndexable for IndexU16<N> {
   fn from_index(u: usize) -> Self {
-    let u: u16 = u.try_into().unwrap_or_else(|_|panic!("Invalid IndexU8 index provided {}", u));
-    Self::new(u).unwrap_or_else(||panic!("Invalid IndexU8 index provided {}", u))
+    let u: u16 = u.try_into().unwrap_or_else(|_| panic!("Invalid IndexU8 index provided {}", u));
+    Self::new(u).unwrap_or_else(|| panic!("Invalid IndexU8 index provided {}", u))
   }
 }
 

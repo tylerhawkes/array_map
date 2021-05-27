@@ -58,23 +58,29 @@ impl<K: Indexable, const N: usize> ArraySet<K, N> {
   pub fn new() -> Self {
     Self::empty()
   }
-  #[inline]
+  #[inline(always)]
   fn query<R>(&self, t: K, f: impl FnOnce(u8, u8) -> R) -> R {
     let index = t.index();
     let byte = index >> 3;
-    debug_assert!(byte < N);
+    assert!(byte < N);
     let bit = index & 0x7;
     let mask = 1_u8 << bit;
-    f(self.set[byte], mask)
+    // # Safety
+    // we have already asserted that byte < N so getting this is fine
+    #[allow(unsafe_code)]
+    f(unsafe { *self.set.get_unchecked(byte) }, mask)
   }
-  #[inline]
+  #[inline(always)]
   fn mutate<R>(&mut self, t: K, f: impl FnOnce(&mut u8, u8) -> R) -> R {
     let index = t.index();
     let byte = index >> 3;
-    debug_assert!(byte < N);
+    assert!(byte < N);
     let bit = index & 0x7;
     let mask = 1_u8 << bit;
-    f(&mut self.set[byte], mask)
+    // # Safety
+    // we have already asserted that byte < N so getting this is fine
+    #[allow(unsafe_code)]
+    f(unsafe { self.set.get_unchecked_mut(byte) }, mask)
   }
   /// Determines whether a key already exists in the set
   #[inline]
@@ -107,19 +113,12 @@ impl<K: Indexable, const N: usize> ArraySet<K, N> {
       .zip(K::iter())
       .filter_map(move |(q, t)| if self.contains(q) { Some(t) } else { None })
   }
-  /// Returns whether this set contains any keys
-  #[inline]
-  #[must_use]
-  pub fn is_empty(&self) -> bool {
-    !self.set.iter().copied().any(|b| b != 0)
-  }
   /// Returns whether all possible keys are in the set
   #[inline]
   #[must_use]
   pub fn is_full(&self) -> bool {
-    self.set.iter().copied().map(u8::count_ones).sum::<u32>() as usize == N
+    self.count_ones() as usize >= K::SIZE
   }
-  /// Returns a new empty set
   #[inline(always)]
   fn set_excess_zero(&mut self) {
     if K::SIZE.trailing_zeros() < 3 {
@@ -147,10 +146,45 @@ impl<K: Indexable, const N: usize> ArraySet<K, N> {
   /// Creates a new, full [`ArraySet`]
   #[inline]
   pub fn full() -> Self {
-    assert_eq!(set_size(K::SIZE), N);
-    debug_assert_eq!(K::SIZE, K::iter().count());
-    let mut set = Self { set: [u8::MAX; N], phantom: PhantomData };
-    set.set_excess_zero();
+    !Self::empty()
+  }
+}
+
+impl<K, const N: usize> ArraySet<K, N> {
+  const fn count_ones(&self) -> u32 {
+    let mut n = 0;
+    let mut count = 0;
+    loop {
+      if n == N {
+        return count;
+      }
+      count += self.set[n].count_ones();
+      n += 1;
+    }
+  }
+  const fn count_zeros(&self) -> u32 {
+    let mut n = 0;
+    let mut count = 0;
+    loop {
+      if n == N {
+        return count;
+      }
+      count += self.set[n].count_zeros();
+      n += 1;
+    }
+  }
+  /// Returns whether this set contains any keys
+  #[inline]
+  #[must_use]
+  pub const fn is_empty(&self) -> bool {
+    self.count_zeros() == 0
+  }
+}
+
+impl<K: Indexable, const N: usize> From<K> for ArraySet<K, N> {
+  fn from(k: K) -> Self {
+    let mut set = Self::new();
+    set.insert(k);
     set
   }
 }
@@ -168,6 +202,7 @@ impl<K: Indexable, const N: usize> core::iter::FromIterator<K> for ArraySet<K, N
 impl<K: Indexable, const N: usize> core::ops::Not for ArraySet<K, N> {
   type Output = Self;
 
+  #[inline]
   fn not(mut self) -> Self::Output {
     for byte in self.set.iter_mut() {
       *byte = !*byte;
@@ -177,9 +212,28 @@ impl<K: Indexable, const N: usize> core::ops::Not for ArraySet<K, N> {
   }
 }
 
+impl<K: Indexable, const N: usize> core::ops::Add<K> for ArraySet<K, N> {
+  type Output = Self;
+
+  fn add(mut self, k: K) -> Self::Output {
+    self.insert(k);
+    self
+  }
+}
+
+impl<K: Indexable, const N: usize> core::ops::Sub<K> for ArraySet<K, N> {
+  type Output = Self;
+
+  fn sub(mut self, k: K) -> Self::Output {
+    self.remove(k);
+    self
+  }
+}
+
 impl<K: Indexable, const N: usize> core::ops::BitAnd for ArraySet<K, N> {
   type Output = Self;
 
+  #[inline]
   fn bitand(mut self, rhs: Self) -> Self::Output {
     for (l, r) in self.set.iter_mut().zip(rhs.set.iter().copied()) {
       *l &= r;
@@ -189,9 +243,17 @@ impl<K: Indexable, const N: usize> core::ops::BitAnd for ArraySet<K, N> {
   }
 }
 
+impl<K: Indexable, const N: usize> core::ops::BitAndAssign for ArraySet<K, N> {
+  #[inline]
+  fn bitand_assign(&mut self, rhs: Self) {
+    *self = *self & rhs;
+  }
+}
+
 impl<K: Indexable, const N: usize> core::ops::BitOr for ArraySet<K, N> {
   type Output = Self;
 
+  #[inline]
   fn bitor(mut self, rhs: Self) -> Self::Output {
     for (l, r) in self.set.iter_mut().zip(rhs.set.iter().copied()) {
       *l |= r;
@@ -201,15 +263,30 @@ impl<K: Indexable, const N: usize> core::ops::BitOr for ArraySet<K, N> {
   }
 }
 
+impl<K: Indexable, const N: usize> core::ops::BitOrAssign for ArraySet<K, N> {
+  #[inline]
+  fn bitor_assign(&mut self, rhs: Self) {
+    *self = *self | rhs;
+  }
+}
+
 impl<K: Indexable, const N: usize> core::ops::BitXor for ArraySet<K, N> {
   type Output = Self;
 
+  #[inline]
   fn bitxor(mut self, rhs: Self) -> Self::Output {
     for (l, r) in self.set.iter_mut().zip(rhs.set.iter().copied()) {
       *l ^= r;
     }
     self.set_excess_zero();
     self
+  }
+}
+
+impl<K: Indexable, const N: usize> core::ops::BitXorAssign for ArraySet<K, N> {
+  #[inline]
+  fn bitxor_assign(&mut self, rhs: Self) {
+    *self = *self ^ rhs
   }
 }
 
