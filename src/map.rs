@@ -112,6 +112,15 @@ impl<K, V, const N: usize> ArrayMap<K, V, N> {
   }
 }
 
+impl<K: Indexable, V, const N: usize> core::iter::IntoIterator for ArrayMap<K, V, N> {
+  type Item = (K, V);
+  type IntoIter = core::iter::Zip<K::Iter, core::array::IntoIter<V, N>>;
+
+  fn into_iter(self) -> Self::IntoIter {
+    K::iter().zip(core::array::IntoIter::new(self.array))
+  }
+}
+
 impl<K: Indexable, V, const N: usize> core::iter::FromIterator<(K, V)> for ArrayMap<K, Option<V>, N> {
   fn from_iter<I: IntoIterator<Item = (K, V)>>(iter: I) -> Self {
     let mut this = Self::from_closure(|_| None);

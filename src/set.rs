@@ -1,5 +1,6 @@
 use crate::{ArrayMap, Indexable};
 use core::marker::PhantomData;
+use core::option::Option::None;
 
 /// A set backed by an array. All possible keys must be known statically.
 ///
@@ -59,8 +60,8 @@ impl<K: Indexable, const N: usize> ArraySet<K, N> {
     Self::empty()
   }
   #[inline(always)]
-  fn query<R>(&self, t: K, f: impl FnOnce(u8, u8) -> R) -> R {
-    let index = t.index();
+  fn query<R>(&self, k: K, f: impl FnOnce(u8, u8) -> R) -> R {
+    let index = k.index();
     let byte = index >> 3;
     assert!(byte < N);
     let bit = index & 0x7;
@@ -71,8 +72,8 @@ impl<K: Indexable, const N: usize> ArraySet<K, N> {
     f(unsafe { *self.set.get_unchecked(byte) }, mask)
   }
   #[inline(always)]
-  fn mutate<R>(&mut self, t: K, f: impl FnOnce(&mut u8, u8) -> R) -> R {
-    let index = t.index();
+  fn mutate<R>(&mut self, k: K, f: impl FnOnce(&mut u8, u8) -> R) -> R {
+    let index = k.index();
     let byte = index >> 3;
     assert!(byte < N);
     let bit = index & 0x7;
@@ -85,13 +86,13 @@ impl<K: Indexable, const N: usize> ArraySet<K, N> {
   /// Determines whether a key already exists in the set
   #[inline]
   #[must_use]
-  pub fn contains(&self, t: K) -> bool {
-    self.query(t, |b, m| b & m != 0)
+  pub fn contains(&self, k: K) -> bool {
+    self.query(k, |b, m| b & m != 0)
   }
   /// Inserts a key into the set and returns whether it was already contained in the set
   #[inline]
-  pub fn insert(&mut self, t: K) -> bool {
-    self.mutate(t, |b, m| {
+  pub fn insert(&mut self, k: K) -> bool {
+    self.mutate(k, |b, m| {
       let contained = *b & m != 0;
       *b |= m;
       contained
@@ -99,8 +100,8 @@ impl<K: Indexable, const N: usize> ArraySet<K, N> {
   }
   /// Removes a key from the set and returns whether it was already contained in the set
   #[inline]
-  pub fn remove(&mut self, t: K) -> bool {
-    self.mutate(t, |b, m| {
+  pub fn remove(&mut self, k: K) -> bool {
+    self.mutate(k, |b, m| {
       let contained = *b & m != 0;
       *b &= !m;
       contained
@@ -189,6 +190,38 @@ impl<K: Indexable, const N: usize> From<K> for ArraySet<K, N> {
   }
 }
 
+/// Returned when calling [`core::iter::IntoIterator::into_iter()`]
+pub struct IntoIter<K: Indexable, const N: usize> {
+  set: ArraySet<K, N>,
+  zip: core::iter::Zip<K::Iter, K::Iter>,
+}
+
+impl<K: Indexable, const N: usize> core::iter::Iterator for IntoIter<K, N> {
+  type Item = K;
+
+  fn next(&mut self) -> Option<Self::Item> {
+    self.zip.next().and_then(|(k, q)|{
+      self.set.contains(q).then(||k)
+    })
+  }
+
+  fn size_hint(&self) -> (usize, Option<usize>) {
+    self.zip.size_hint()
+  }
+}
+
+impl<K: Indexable, const N: usize>  core::iter::IntoIterator for ArraySet<K, N> {
+  type Item = K;
+  type IntoIter = IntoIter<K, N>;
+
+  fn into_iter(self) -> Self::IntoIter {
+    IntoIter {
+      set: self,
+      zip: K::iter().zip(K::iter()),
+    }
+  }
+}
+
 impl<K: Indexable, const N: usize> core::iter::FromIterator<K> for ArraySet<K, N> {
   fn from_iter<I: IntoIterator<Item = K>>(iter: I) -> Self {
     let mut set = Self::new();
@@ -221,12 +254,29 @@ impl<K: Indexable, const N: usize> core::ops::Add<K> for ArraySet<K, N> {
   }
 }
 
+impl<K: Indexable, const N: usize> core::ops::Add<ArraySet<K, N>> for ArraySet<K, N> {
+  type Output = Self;
+
+  fn add(self, k: ArraySet<K, N>) -> Self::Output {
+    self | k
+  }
+}
+
+
 impl<K: Indexable, const N: usize> core::ops::Sub<K> for ArraySet<K, N> {
   type Output = Self;
 
   fn sub(mut self, k: K) -> Self::Output {
     self.remove(k);
     self
+  }
+}
+
+impl<K: Indexable, const N: usize> core::ops::Sub<ArraySet<K, N>> for ArraySet<K, N> {
+  type Output = Self;
+
+  fn sub(self, k: ArraySet<K, N>) -> Self::Output {
+    self & !k
   }
 }
 
