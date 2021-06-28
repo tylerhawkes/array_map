@@ -122,6 +122,21 @@ impl<K: Indexable, V, const N: usize> core::iter::FromIterator<(K, V)> for Array
   }
 }
 
+impl<K: Indexable, V, const N: usize> ArrayMap<K, Option<V>, N> {
+  /// Collects an iterator of `(K, Result<V, E>)` into a `Result<Self, E>`
+  ///
+  /// The trait [`FromIterator`](core::iter::FromIterator) cannot be implemented for [`Result`](core::result::Result)
+  /// like it is on a Vec because of the orphan rules.
+  pub fn from_results<E, I: IntoIterator<Item = (K, Result<V, E>)>>(iter: I) -> Result<Self, E> {
+    let mut this = Self::from_closure(|_| None);
+    for (k, r) in iter {
+      let v = r?;
+      this.array[k.index()] = Some(v);
+    }
+    Ok(this)
+  }
+}
+
 impl<K: Indexable, V: Default, const N: usize> Default for ArrayMap<K, V, N> {
   #[inline(always)]
   fn default() -> Self {

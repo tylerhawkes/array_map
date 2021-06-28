@@ -339,10 +339,213 @@ mod atomics {
   }
 }
 
+impl<K: Indexable> ArraySet<K, 1> {
+  /// Returns this set as a u8 (or anything that it can be turned into) with the appropriate bits
+  /// representing each of the keys in this set.
+  #[inline]
+  #[must_use]
+  pub fn to_int<U>(self) -> U
+  where
+    u8: Into<U>,
+  {
+    self.set[0].into()
+  }
+
+  /// Creates a new `ArraySet` from the given u8. Bits may be cleared to ensure this is in a valid state.
+  pub fn from_int(u: u8) -> Self {
+    let mut set = Self{ set: [u], phantom: PhantomData };
+    set.set_excess_zero();
+    set
+  }
+}
+
+impl<K: Indexable> ArraySet<K, 2> {
+  /// Returns this set as a u16 (or anything that it can be turned into) with the appropriate bits
+  /// representing each of the keys in this set.
+  #[inline]
+  #[must_use]
+  pub fn to_int<U>(self) -> U
+  where
+    u16: Into<U>,
+  {
+    (self.set[0] as u16 | ((self.set[1] as u16) << 8)).into()
+  }
+
+  /// Creates a new `ArraySet` from the given u16. Bits may be cleared to ensure this is in a valid state.
+  pub fn from_int(u: u16) -> Self {
+    let mut set = Self{ set: [u as u8, (u >> 8) as u8], phantom: PhantomData };
+    set.set_excess_zero();
+    set
+  }
+}
+
+impl<K: Indexable> ArraySet<K, 3> {
+  /// Returns this set as a u32 (or anything that it can be turned into) with the appropriate bits
+  /// representing each of the keys in this set.
+  #[inline]
+  #[must_use]
+  pub fn to_int<U>(self) -> U
+  where
+    u32: Into<U>,
+  {
+    let mut u = 0_u32;
+    for (i, &k) in self.set.iter().enumerate() {
+      u |= (k as u32) << (i as u32 * 8);
+    }
+    u.into()
+  }
+
+  /// Creates a new `ArraySet` from the given u32. Bits may be cleared to ensure this is in a valid state.
+  pub fn from_int(u: u32) -> Self {
+    let mut set = Self::empty();
+    for (i, b) in set.set.iter_mut().enumerate() {
+      *b = (u >> (i * 8)) as u8;
+    }
+    set.set_excess_zero();
+    set
+  }
+}
+
+impl<K: Indexable> ArraySet<K, 4> {
+  /// Returns this set as a u32 (or anything that it can be turned into) with the appropriate bits
+  /// representing each of the keys in this set.
+  #[inline]
+  #[must_use]
+  pub fn to_int<U>(self) -> U
+    where
+      u32: Into<U>,
+  {
+    let mut u = 0_u32;
+    for (i, &k) in self.set.iter().enumerate() {
+      u |= (k as u32) << (i as u32 * 8);
+    }
+    u.into()
+  }
+
+  /// Creates a new `ArraySet` from the given u32. Bits may be cleared to ensure this is in a valid state.
+  pub fn from_int(u: u32) -> Self {
+    let mut set = Self::empty();
+    for (i, b) in set.set.iter_mut().enumerate() {
+      *b = (u >> (i * 8)) as u8;
+    }
+    set.set_excess_zero();
+    set
+  }
+}
+
+impl<K: Indexable> ArraySet<K, 5> {
+  /// Returns this set as a u64 (or anything that it can be turned into) with the appropriate bits
+  /// representing each of the keys in this set.
+  #[inline]
+  #[must_use]
+  pub fn to_int<U>(self) -> U
+    where
+      u64: Into<U>,
+  {
+    let mut u = 0_u64;
+    for (i, &k) in self.set.iter().enumerate() {
+      u |= (k as u64) << (i as u64 * 8);
+    }
+    u.into()
+  }
+
+  /// Creates a new `ArraySet` from the given u64. Bits may be cleared to ensure this is in a valid state.
+  pub fn from_int(u: u64) -> Self {
+    let mut set = Self::empty();
+    for (i, b) in set.set.iter_mut().enumerate() {
+      *b = (u >> (i * 8)) as u8;
+    }
+    set.set_excess_zero();
+    set
+  }
+}
+
+impl<K: Indexable> ArraySet<K, 6> {
+  /// Returns this set as a u64 (or anything that it can be turned into) with the appropriate bits
+  /// representing each of the keys in this set.
+  #[inline]
+  #[must_use]
+  pub fn to_int<U>(self) -> U
+    where
+      u64: Into<U>,
+  {
+    let mut u = 0_u64;
+    for (i, &k) in self.set.iter().enumerate() {
+      u |= (k as u64) << (i as u64 * 8);
+    }
+    u.into()
+  }
+
+  /// Creates a new `ArraySet` from the given u64. Bits may be cleared to ensure this is in a valid state.
+  pub fn from_int(u: u64) -> Self {
+    let mut set = Self::empty();
+    for (i, b) in set.set.iter_mut().enumerate() {
+      *b = (u >> (i * 8)) as u8;
+    }
+    set.set_excess_zero();
+    set
+  }
+}
+
+impl<K: Indexable> ArraySet<K, 7> {
+  /// Returns this set as a u64 (or anything that it can be turned into) with the appropriate bits
+  /// representing each of the keys in this set.
+  #[inline]
+  #[must_use]
+  pub fn to_int<U>(self) -> U
+    where
+      u64: Into<U>,
+  {
+    let mut u = 0_u64;
+    for (i, &k) in self.set.iter().enumerate() {
+      u |= (k as u64) << (i as u64 * 8);
+    }
+    u.into()
+  }
+
+  /// Creates a new `ArraySet` from the given u64. Bits may be cleared to ensure this is in a valid state.
+  pub fn from_int(u: u64) -> Self {
+    let mut set = Self::empty();
+    for (i, b) in set.set.iter_mut().enumerate() {
+      *b = (u >> (i * 8)) as u8;
+    }
+    set.set_excess_zero();
+    set
+  }
+}
+
+impl<K: Indexable> ArraySet<K, 8> {
+  /// Returns this set as a u64 (or anything that it can be turned into) with the appropriate bits
+  /// representing each of the keys in this set.
+  #[inline]
+  #[must_use]
+  pub fn to_int<U>(self) -> U
+    where
+      u64: Into<U>,
+  {
+    let mut u = 0_u64;
+    for (i, &k) in self.set.iter().enumerate() {
+      u |= (k as u64) << (i as u64 * 8);
+    }
+    u.into()
+  }
+
+  /// Creates a new `ArraySet` from the given u64. Bits may be cleared to ensure this is in a valid state.
+  pub fn from_int(u: u64) -> Self {
+    let mut set = Self::empty();
+    for (i, b) in set.set.iter_mut().enumerate() {
+      *b = (u >> (i * 8)) as u8;
+    }
+    set.set_excess_zero();
+    set
+  }
+}
+
 #[cfg(test)]
 mod test {
   use super::*;
   use crate::test::*;
+  use crate::IndexU8;
 
   fn send_sync_traits<T: Send + Sync + Default + Clone + Copy + PartialEq + Eq + core::fmt::Debug>() {}
 
@@ -372,4 +575,28 @@ mod test {
     test_traits::<u8, { crate::set_size(u8::SIZE) }>();
     test_traits::<Lowercase, { crate::set_size(Lowercase::SIZE) }>();
   }
+
+  fn test_roundtrip(v: u8) {
+    let mut u = 0_u64;
+    for i in 0..8 {
+      u |= (v as u64) << (i * 8);
+    }
+
+    assert_eq!(u as u8, <ArraySet<IndexU8<8>, {crate::set_size(8)}>>::from_int(u as u8).to_int::<u8>());
+    assert_eq!(u as u16, <ArraySet<IndexU8<16>, {crate::set_size(16)}>>::from_int(u as u16).to_int::<u16>());
+    assert_eq!(u as u32 >> 8, <ArraySet<IndexU8<24>, {crate::set_size(24)}>>::from_int(u as u32).to_int::<u32>());
+    assert_eq!(u as u32, <ArraySet<IndexU8<32>, {crate::set_size(32)}>>::from_int(u as u32).to_int::<u32>());
+    assert_eq!(u >> 24, <ArraySet<IndexU8<40>, {crate::set_size(40)}>>::from_int(u).to_int::<u64>());
+    assert_eq!(u >> 16, <ArraySet<IndexU8<48>, {crate::set_size(48)}>>::from_int(u).to_int::<u64>());
+    assert_eq!(u >> 8, <ArraySet<IndexU8<56>, {crate::set_size(56)}>>::from_int(u).to_int::<u64>());
+    assert_eq!(u, <ArraySet<IndexU8<64>, {crate::set_size(64)}>>::from_int(u).to_int::<u64>());
+  }
+
+  #[test]
+  fn test_from_to_int() {
+    for i in 0..=255 {
+      test_roundtrip(i);
+    }
+  }
+
 }
