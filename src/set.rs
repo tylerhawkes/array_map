@@ -1,6 +1,5 @@
-use crate::{ArrayMap, Indexable};
+use crate::{ArrayMap, Indexable, ReverseIndexable};
 use core::marker::PhantomData;
-use core::option::Option::None;
 
 /// A set backed by an array. All possible keys must be known statically.
 ///
@@ -9,17 +8,21 @@ use core::option::Option::None;
 pub struct ArraySet<K, const N: usize> {
   pub(crate) set: [u8; N],
   // This allows Send, Sync, and Unpin to be implemented correctly
-  pub(crate) phantom: PhantomData<fn() -> K>,
+  pub(crate) phantom: PhantomData<*const K>,
 }
+
+#[allow(unsafe_code)]
+unsafe impl<K, const N: usize> Send for ArraySet<K, N> {}
+#[allow(unsafe_code)]
+unsafe impl<K, const N: usize> Sync for ArraySet<K, N> {}
+impl<K, const N: usize> Unpin for ArraySet<K, N> {}
+#[cfg(feature = "std")]
+impl<K, const N: usize> std::panic::UnwindSafe for ArraySet<K, N> {}
 
 /// Convenience function used to determine the underlying size needed for an `ArraySet`
 #[must_use]
 pub const fn set_size(size: usize) -> usize {
-  if size.trailing_zeros() >= 3 {
-    size >> 3
-  } else {
-    (size >> 3) + 1
-  }
+  (size >> 3) + (size.trailing_zeros() < 3) as usize
 }
 
 impl<K: Indexable, const N: usize> Default for ArraySet<K, N> {
@@ -53,12 +56,71 @@ impl<K: core::fmt::Debug + Indexable, const N: usize> core::fmt::Debug for Array
   }
 }
 
+impl<K: Indexable, const N: usize> core::fmt::Binary for ArraySet<K, N> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    use core::fmt::Write;
+    if f.alternate() {
+      f.write_char('b')?;
+    }
+    let precision = f.precision().unwrap_or(K::SIZE).max(K::SIZE);
+    for _ in K::SIZE..precision {
+      f.write_char('0')?;
+    }
+    let unfilled_last = K::SIZE.trailing_zeros() < 3;
+    if unfilled_last {
+      let b = self.set[N - 1];
+      for mask in (0..K::SIZE & 0x7).rev() {
+        if b & (1 << mask) > 0 {
+          f.write_char('1')?;
+        } else {
+          f.write_char('0')?;
+        }
+      }
+    }
+    for b in self.set.iter().rev().skip(unfilled_last as usize).copied() {
+      for mask in (0..u8::BITS).rev() {
+        if b & (1 << mask) > 0 {
+          f.write_char('1')?;
+        } else {
+          f.write_char('0')?;
+        }
+      }
+    }
+    Ok(())
+  }
+}
+
+impl<K, const N: usize> ArraySet<K, N> {
+  /// Returns the number of keys that this set currently holds
+  #[inline]
+  #[must_use]
+  pub const fn len(&self) -> usize {
+    let mut n = 0;
+    let mut count = 0;
+    loop {
+      if n == N {
+        return count;
+      }
+      count += self.set[n].count_ones() as usize;
+      n += 1;
+    }
+  }
+
+  /// Returns whether this set contains any keys
+  #[inline]
+  #[must_use]
+  pub const fn is_empty(&self) -> bool {
+    self.len() == 0
+  }
+}
+
 impl<K: Indexable, const N: usize> ArraySet<K, N> {
   /// Creates a new, empty [`ArraySet`]
   #[inline]
   pub fn new() -> Self {
     Self::empty()
   }
+
   #[inline(always)]
   fn query<R>(&self, k: K, f: impl FnOnce(u8, u8) -> R) -> R {
     let index = k.index();
@@ -66,11 +128,9 @@ impl<K: Indexable, const N: usize> ArraySet<K, N> {
     assert!(byte < N);
     let bit = index & 0x7;
     let mask = 1_u8 << bit;
-    // # Safety
-    // we have already asserted that byte < N so getting this is fine
-    #[allow(unsafe_code)]
-    f(unsafe { *self.set.get_unchecked(byte) }, mask)
+    f(self.set[byte], mask)
   }
+
   #[inline(always)]
   fn mutate<R>(&mut self, k: K, f: impl FnOnce(&mut u8, u8) -> R) -> R {
     let index = k.index();
@@ -78,17 +138,16 @@ impl<K: Indexable, const N: usize> ArraySet<K, N> {
     assert!(byte < N);
     let bit = index & 0x7;
     let mask = 1_u8 << bit;
-    // # Safety
-    // we have already asserted that byte < N so getting this is fine
-    #[allow(unsafe_code)]
-    f(unsafe { self.set.get_unchecked_mut(byte) }, mask)
+    f(&mut self.set[byte], mask)
   }
+
   /// Determines whether a key already exists in the set
   #[inline]
   #[must_use]
   pub fn contains(&self, k: K) -> bool {
     self.query(k, |b, m| b & m != 0)
   }
+
   /// Inserts a key into the set and returns whether it was already contained in the set
   #[inline]
   pub fn insert(&mut self, k: K) -> bool {
@@ -98,6 +157,7 @@ impl<K: Indexable, const N: usize> ArraySet<K, N> {
       contained
     })
   }
+
   /// Removes a key from the set and returns whether it was already contained in the set
   #[inline]
   pub fn remove(&mut self, k: K) -> bool {
@@ -107,78 +167,73 @@ impl<K: Indexable, const N: usize> ArraySet<K, N> {
       contained
     })
   }
+
   /// Returns an iterator over all values that are in the set
   #[inline]
   pub fn keys(&self) -> impl Iterator<Item = K> + '_ {
-    K::iter()
-      .zip(K::iter())
-      .filter_map(move |(q, t)| if self.contains(q) { Some(t) } else { None })
+    K::iter().zip(K::iter()).filter_map(move |(q, k)| self.contains(q).then(|| k))
   }
+
   /// Returns whether all possible keys are in the set
   #[inline]
   #[must_use]
   pub fn is_full(&self) -> bool {
-    self.count_ones() as usize >= K::SIZE
+    self.len() as usize >= K::SIZE
   }
+
   #[inline(always)]
   fn set_excess_zero(&mut self) {
     if K::SIZE.trailing_zeros() < 3 {
-      self.set[N - 1] &= Self::last_mask();
-    }
-  }
-  fn last_mask() -> u8 {
-    if K::SIZE.trailing_zeros() < 3 {
       let used_last = K::SIZE & 0x7;
-      !0_u8 >> (8 - used_last)
-    } else {
-      !0
+      let last_mask = !0_u8 >> (8 - used_last);
+      self.set[N - 1] &= last_mask;
     }
   }
+
   /// Creates a new, empty [`ArraySet`]
+  /// # Panics
+  /// Panics if any of the safety requirements in the [`Indexable`](crate::Indexable) trait are wrong
   #[inline]
   pub fn empty() -> Self {
+    assert_eq!(K::SET_SIZE, N);
     assert_eq!(set_size(K::SIZE), N);
-    debug_assert_eq!(K::SIZE, K::iter().count());
+    debug_assert_eq!(K::SIZE, K::iter().take(K::SIZE + 1).count());
+    debug_assert!(K::iter().take(K::SIZE + 1).enumerate().all(|(l, i)| l == i.index()));
     Self {
       set: [0; N],
       phantom: PhantomData,
     }
   }
+
   /// Creates a new, full [`ArraySet`]
   #[inline]
   pub fn full() -> Self {
     !Self::empty()
   }
-}
 
-impl<K, const N: usize> ArraySet<K, N> {
-  const fn count_ones(&self) -> u32 {
-    let mut n = 0;
-    let mut count = 0;
-    loop {
-      if n == N {
-        return count;
-      }
-      count += self.set[n].count_ones();
-      n += 1;
-    }
-  }
-  const fn count_zeros(&self) -> u32 {
-    let mut n = 0;
-    let mut count = 0;
-    loop {
-      if n == N {
-        return count;
-      }
-      count += self.set[n].count_zeros();
-      n += 1;
-    }
-  }
-  /// Returns whether this set contains any keys
+  /// Returns the number of keys that aren't in the set
   #[inline]
   #[must_use]
-  pub const fn is_empty(&self) -> bool {
-    self.count_zeros() == 0
+  pub fn unset_keys(&self) -> usize {
+    K::SIZE - self.len()
+  }
+
+  fn bit_iterator(&self) -> impl Iterator<Item = (usize, bool)> + '_ {
+    self
+      .set
+      .iter()
+      .copied()
+      .enumerate()
+      .flat_map(|(i, b)| (0..u8::BITS).map(move |mask| (i * 8 + mask as usize, b & (1 << mask) > 0)))
+      .filter(|(i, _)| *i < K::SIZE)
+  }
+}
+
+impl<K: ReverseIndexable, const N: usize> ArraySet<K, N> {
+  /// Returns an iterator over all values that are in the set
+  #[inline]
+  pub fn fast_keys(&self) -> impl Iterator<Item = K> + '_ {
+    self.bit_iterator().filter_map(|(i, b)| b.then(|| K::from_index(i)))
   }
 }
 
@@ -200,9 +255,7 @@ impl<K: Indexable, const N: usize> core::iter::Iterator for IntoIter<K, N> {
   type Item = K;
 
   fn next(&mut self) -> Option<Self::Item> {
-    self.zip.next().and_then(|(k, q)|{
-      self.set.contains(q).then(||k)
-    })
+    self.zip.next().and_then(|(k, q)| self.set.contains(q).then(|| k))
   }
 
   fn size_hint(&self) -> (usize, Option<usize>) {
@@ -210,7 +263,7 @@ impl<K: Indexable, const N: usize> core::iter::Iterator for IntoIter<K, N> {
   }
 }
 
-impl<K: Indexable, const N: usize>  core::iter::IntoIterator for ArraySet<K, N> {
+impl<K: Indexable, const N: usize> core::iter::IntoIterator for ArraySet<K, N> {
   type Item = K;
   type IntoIter = IntoIter<K, N>;
 
@@ -221,6 +274,8 @@ impl<K: Indexable, const N: usize>  core::iter::IntoIterator for ArraySet<K, N> 
     }
   }
 }
+
+impl<K: Indexable, const N: usize> core::iter::ExactSizeIterator for IntoIter<K, N> {}
 
 impl<K: Indexable, const N: usize> core::iter::FromIterator<K> for ArraySet<K, N> {
   fn from_iter<I: IntoIterator<Item = K>>(iter: I) -> Self {
@@ -257,11 +312,12 @@ impl<K: Indexable, const N: usize> core::ops::Add<K> for ArraySet<K, N> {
 impl<K: Indexable, const N: usize> core::ops::Add<ArraySet<K, N>> for ArraySet<K, N> {
   type Output = Self;
 
+  #[allow(clippy::suspicious_arithmetic_impl)]
+  // Adding two sets is the same as performing a bitwise or on them
   fn add(self, k: ArraySet<K, N>) -> Self::Output {
     self | k
   }
 }
-
 
 impl<K: Indexable, const N: usize> core::ops::Sub<K> for ArraySet<K, N> {
   type Output = Self;
@@ -403,7 +459,10 @@ impl<K: Indexable> ArraySet<K, 1> {
 
   /// Creates a new `ArraySet` from the given u8. Bits may be cleared to ensure this is in a valid state.
   pub fn from_int(u: u8) -> Self {
-    let mut set = Self{ set: [u], phantom: PhantomData };
+    let mut set = Self {
+      set: [u],
+      phantom: PhantomData,
+    };
     set.set_excess_zero();
     set
   }
@@ -418,12 +477,16 @@ impl<K: Indexable> ArraySet<K, 2> {
   where
     u16: Into<U>,
   {
-    (self.set[0] as u16 | ((self.set[1] as u16) << 8)).into()
+    (u16::from(self.set[0]) | (u16::from(self.set[1]) << 8)).into()
   }
 
   /// Creates a new `ArraySet` from the given u16. Bits may be cleared to ensure this is in a valid state.
   pub fn from_int(u: u16) -> Self {
-    let mut set = Self{ set: [u as u8, (u >> 8) as u8], phantom: PhantomData };
+    #[allow(clippy::cast_possible_truncation)]
+    let mut set = Self {
+      set: [u as u8, (u >> 8) as u8],
+      phantom: PhantomData,
+    };
     set.set_excess_zero();
     set
   }
@@ -439,8 +502,9 @@ impl<K: Indexable> ArraySet<K, 3> {
     u32: Into<U>,
   {
     let mut u = 0_u32;
+    #[allow(clippy::cast_possible_truncation)]
     for (i, &k) in self.set.iter().enumerate() {
-      u |= (k as u32) << (i as u32 * 8);
+      u |= u32::from(k) << (i as u32 * 8);
     }
     u.into()
   }
@@ -448,6 +512,7 @@ impl<K: Indexable> ArraySet<K, 3> {
   /// Creates a new `ArraySet` from the given u32. Bits may be cleared to ensure this is in a valid state.
   pub fn from_int(u: u32) -> Self {
     let mut set = Self::empty();
+    #[allow(clippy::cast_possible_truncation)]
     for (i, b) in set.set.iter_mut().enumerate() {
       *b = (u >> (i * 8)) as u8;
     }
@@ -462,12 +527,13 @@ impl<K: Indexable> ArraySet<K, 4> {
   #[inline]
   #[must_use]
   pub fn to_int<U>(self) -> U
-    where
-      u32: Into<U>,
+  where
+    u32: Into<U>,
   {
     let mut u = 0_u32;
+    #[allow(clippy::cast_possible_truncation)]
     for (i, &k) in self.set.iter().enumerate() {
-      u |= (k as u32) << (i as u32 * 8);
+      u |= u32::from(k) << (i as u32 * 8);
     }
     u.into()
   }
@@ -475,6 +541,7 @@ impl<K: Indexable> ArraySet<K, 4> {
   /// Creates a new `ArraySet` from the given u32. Bits may be cleared to ensure this is in a valid state.
   pub fn from_int(u: u32) -> Self {
     let mut set = Self::empty();
+    #[allow(clippy::cast_possible_truncation)]
     for (i, b) in set.set.iter_mut().enumerate() {
       *b = (u >> (i * 8)) as u8;
     }
@@ -489,12 +556,13 @@ impl<K: Indexable> ArraySet<K, 5> {
   #[inline]
   #[must_use]
   pub fn to_int<U>(self) -> U
-    where
-      u64: Into<U>,
+  where
+    u64: Into<U>,
   {
     let mut u = 0_u64;
+    #[allow(clippy::cast_possible_truncation)]
     for (i, &k) in self.set.iter().enumerate() {
-      u |= (k as u64) << (i as u64 * 8);
+      u |= u64::from(k) << (i as u64 * 8);
     }
     u.into()
   }
@@ -502,6 +570,7 @@ impl<K: Indexable> ArraySet<K, 5> {
   /// Creates a new `ArraySet` from the given u64. Bits may be cleared to ensure this is in a valid state.
   pub fn from_int(u: u64) -> Self {
     let mut set = Self::empty();
+    #[allow(clippy::cast_possible_truncation)]
     for (i, b) in set.set.iter_mut().enumerate() {
       *b = (u >> (i * 8)) as u8;
     }
@@ -516,12 +585,13 @@ impl<K: Indexable> ArraySet<K, 6> {
   #[inline]
   #[must_use]
   pub fn to_int<U>(self) -> U
-    where
-      u64: Into<U>,
+  where
+    u64: Into<U>,
   {
     let mut u = 0_u64;
+    #[allow(clippy::cast_possible_truncation)]
     for (i, &k) in self.set.iter().enumerate() {
-      u |= (k as u64) << (i as u64 * 8);
+      u |= u64::from(k) << (i as u64 * 8);
     }
     u.into()
   }
@@ -529,6 +599,7 @@ impl<K: Indexable> ArraySet<K, 6> {
   /// Creates a new `ArraySet` from the given u64. Bits may be cleared to ensure this is in a valid state.
   pub fn from_int(u: u64) -> Self {
     let mut set = Self::empty();
+    #[allow(clippy::cast_possible_truncation)]
     for (i, b) in set.set.iter_mut().enumerate() {
       *b = (u >> (i * 8)) as u8;
     }
@@ -543,12 +614,13 @@ impl<K: Indexable> ArraySet<K, 7> {
   #[inline]
   #[must_use]
   pub fn to_int<U>(self) -> U
-    where
-      u64: Into<U>,
+  where
+    u64: Into<U>,
   {
     let mut u = 0_u64;
+    #[allow(clippy::cast_possible_truncation)]
     for (i, &k) in self.set.iter().enumerate() {
-      u |= (k as u64) << (i as u64 * 8);
+      u |= u64::from(k) << (i as u64 * 8);
     }
     u.into()
   }
@@ -556,6 +628,7 @@ impl<K: Indexable> ArraySet<K, 7> {
   /// Creates a new `ArraySet` from the given u64. Bits may be cleared to ensure this is in a valid state.
   pub fn from_int(u: u64) -> Self {
     let mut set = Self::empty();
+    #[allow(clippy::cast_possible_truncation)]
     for (i, b) in set.set.iter_mut().enumerate() {
       *b = (u >> (i * 8)) as u8;
     }
@@ -570,12 +643,13 @@ impl<K: Indexable> ArraySet<K, 8> {
   #[inline]
   #[must_use]
   pub fn to_int<U>(self) -> U
-    where
-      u64: Into<U>,
+  where
+    u64: Into<U>,
   {
     let mut u = 0_u64;
+    #[allow(clippy::cast_possible_truncation)]
     for (i, &k) in self.set.iter().enumerate() {
-      u |= (k as u64) << (i as u64 * 8);
+      u |= u64::from(k) << (i as u64 * 8);
     }
     u.into()
   }
@@ -583,6 +657,7 @@ impl<K: Indexable> ArraySet<K, 8> {
   /// Creates a new `ArraySet` from the given u64. Bits may be cleared to ensure this is in a valid state.
   pub fn from_int(u: u64) -> Self {
     let mut set = Self::empty();
+    #[allow(clippy::cast_possible_truncation)]
     for (i, b) in set.set.iter_mut().enumerate() {
       *b = (u >> (i * 8)) as u8;
     }
@@ -632,14 +707,35 @@ mod test {
       u |= (v as u64) << (i * 8);
     }
 
-    assert_eq!(u as u8, <ArraySet<IndexU8<8>, {crate::set_size(8)}>>::from_int(u as u8).to_int::<u8>());
-    assert_eq!(u as u16, <ArraySet<IndexU8<16>, {crate::set_size(16)}>>::from_int(u as u16).to_int::<u16>());
-    assert_eq!(u as u32 >> 8, <ArraySet<IndexU8<24>, {crate::set_size(24)}>>::from_int(u as u32).to_int::<u32>());
-    assert_eq!(u as u32, <ArraySet<IndexU8<32>, {crate::set_size(32)}>>::from_int(u as u32).to_int::<u32>());
-    assert_eq!(u >> 24, <ArraySet<IndexU8<40>, {crate::set_size(40)}>>::from_int(u).to_int::<u64>());
-    assert_eq!(u >> 16, <ArraySet<IndexU8<48>, {crate::set_size(48)}>>::from_int(u).to_int::<u64>());
-    assert_eq!(u >> 8, <ArraySet<IndexU8<56>, {crate::set_size(56)}>>::from_int(u).to_int::<u64>());
-    assert_eq!(u, <ArraySet<IndexU8<64>, {crate::set_size(64)}>>::from_int(u).to_int::<u64>());
+    assert_eq!(
+      u as u8,
+      <ArraySet<IndexU8<8>, { crate::set_size(8) }>>::from_int(u as u8).to_int::<u8>()
+    );
+    assert_eq!(
+      u as u16,
+      <ArraySet<IndexU8<16>, { crate::set_size(16) }>>::from_int(u as u16).to_int::<u16>()
+    );
+    assert_eq!(
+      u as u32 >> 8,
+      <ArraySet<IndexU8<24>, { crate::set_size(24) }>>::from_int(u as u32).to_int::<u32>()
+    );
+    assert_eq!(
+      u as u32,
+      <ArraySet<IndexU8<32>, { crate::set_size(32) }>>::from_int(u as u32).to_int::<u32>()
+    );
+    assert_eq!(
+      u >> 24,
+      <ArraySet<IndexU8<40>, { crate::set_size(40) }>>::from_int(u).to_int::<u64>()
+    );
+    assert_eq!(
+      u >> 16,
+      <ArraySet<IndexU8<48>, { crate::set_size(48) }>>::from_int(u).to_int::<u64>()
+    );
+    assert_eq!(
+      u >> 8,
+      <ArraySet<IndexU8<56>, { crate::set_size(56) }>>::from_int(u).to_int::<u64>()
+    );
+    assert_eq!(u, <ArraySet<IndexU8<64>, { crate::set_size(64) }>>::from_int(u).to_int::<u64>());
   }
 
   #[test]
@@ -648,5 +744,4 @@ mod test {
       test_roundtrip(i);
     }
   }
-
 }

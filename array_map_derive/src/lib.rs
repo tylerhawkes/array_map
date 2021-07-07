@@ -80,16 +80,26 @@ fn derive(ast: &DeriveInput) -> syn::Result<TokenStream> {
       }
       let iter_name = syn::parse_str::<Ident>(&format!("{}IndexableIter", name)).unwrap();
 
+      let iter_doc = format!("An iterator over all variants of [`{}`]", name);
+      let get_doc = format!(
+        "Returns a variant of [`{}`] where calling `index()` on the variant is equal to `idx`",
+        name
+      );
+      let iter_fn_doc = format!("Returns an iterator over all items of [`{}`]", name);
+      let count_fn_doc = format!(
+        "Returns the number of items that will be returned by [`{}`] that are not disabled members of [`{}`]",
+        iter_name, name
+      );
       Ok(quote! {
-          #[allow(missing_docs)]
+          #[doc = #iter_doc]
           #vis struct #iter_name #ty_generics {
               idx: usize,
               back_idx: usize,
               marker: ::core::marker::PhantomData #phantom_data,
           }
 
-          #[allow(missing_docs)]
           impl #impl_generics #iter_name #ty_generics #where_clause {
+              #[doc = #get_doc]
               fn get(&self, idx: usize) -> Option<#name #ty_generics> {
                   match idx {
                       #(#arms),*
@@ -99,14 +109,16 @@ fn derive(ast: &DeriveInput) -> syn::Result<TokenStream> {
 
           #[allow(missing_docs)]
           impl #impl_generics #name #ty_generics #where_clause {
+              #[doc = #iter_fn_doc]
               #[inline]
-              pub fn iter() -> #iter_name #ty_generics {
+              pub const fn iter() -> #iter_name #ty_generics {
                   #iter_name {
                       idx: 0,
                       back_idx: 0,
                       marker: ::core::marker::PhantomData,
                   }
               }
+              #[doc = #count_fn_doc]
               #[inline]
               #[must_use]
               pub const fn count() -> usize {
@@ -177,6 +189,7 @@ fn derive(ast: &DeriveInput) -> syn::Result<TokenStream> {
           #[allow(unsafe_code)]
           unsafe impl #impl_generics array_map::Indexable for #name #ty_generics #where_clause {
               const SIZE: usize = Self::count();
+              const SET_SIZE: usize = array_map::set_size(Self::count());
               type Iter = #iter_name #ty_generics;
               #[inline]
               #[must_use]
@@ -190,12 +203,17 @@ fn derive(ast: &DeriveInput) -> syn::Result<TokenStream> {
                   Self::iter()
               }
           }
+          #[allow(unsafe_code)]
+          unsafe impl #impl_generics array_map::ReverseIndexable for #name #ty_generics #where_clause {
+              fn from_index(u: usize) -> Self {
+                  match u {
+                      #(#arms),*
+                  }.unwrap_or_else(||panic!("Provided index ({}) is not a valid index", u))
+              }
+          }
       })
     }
-    _ => Err(syn::Error::new(
-      Span::call_site(),
-      "This macro only supports enums and transparent structs",
-    )),
+    _ => Err(syn::Error::new(Span::call_site(), "This macro only supports enums")),
   }
 }
 
@@ -302,7 +320,7 @@ fn get_metadata_inner<'a, T: syn::parse::Parse + syn::spanned::Spanned>(
 }
 
 fn occurrence_error<T: quote::ToTokens>(fst: T, snd: T, attr: &str) -> syn::Error {
-  let mut e = syn::Error::new_spanned(snd, format!("Found multiple occurrences of strum({})", attr));
+  let mut e = syn::Error::new_spanned(snd, format!("Found multiple occurrences of index({})", attr));
   e.combine(syn::Error::new_spanned(fst, "first one here"));
   e
 }

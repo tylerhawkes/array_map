@@ -1,9 +1,6 @@
-#![cfg_attr(
-  not(test),
-  deny(warnings, clippy::all, clippy::pedantic, clippy::cargo, missing_docs, missing_crate_level_docs)
-)]
+#![cfg_attr(not(test), deny(warnings, clippy::all, clippy::pedantic, clippy::cargo, missing_docs))]
 #![deny(unsafe_code)]
-#![cfg_attr(not(all(test, feature = "std")), no_std)]
+#![cfg_attr(not(any(test, feature = "std")), no_std)]
 #![allow(clippy::module_name_repetitions, clippy::inline_always)]
 
 //! `no_std` compatible Map and Set backed by arrays.
@@ -66,6 +63,10 @@ pub use set::*;
 pub unsafe trait Indexable {
   /// The number of items or variants that this type can have.
   const SIZE: usize;
+  /// The number of bytes it will take to represent this type in a set.
+  /// # Safety
+  /// This must equal `set_size(Self::SIZE)`
+  const SET_SIZE: usize;
   /// The type of Iterator that will be returned by [`Self::iter()`]
   type Iter: Iterator<Item = Self>;
   /// Maps self to usize to know which value in the underling array to use
@@ -102,6 +103,7 @@ pub unsafe trait ReverseIndexable: Indexable {
 #[allow(unsafe_code)]
 unsafe impl Indexable for bool {
   const SIZE: usize = 2;
+  const SET_SIZE: usize = set_size(2);
   type Iter = core::array::IntoIter<bool, 2>;
   #[inline(always)]
   fn index(self) -> usize {
@@ -128,7 +130,8 @@ unsafe impl ReverseIndexable for bool {
 
 #[allow(unsafe_code)]
 unsafe impl Indexable for u8 {
-  const SIZE: usize = 256;
+  const SIZE: usize = u8::MAX as usize + 1;
+  const SET_SIZE: usize = set_size(u8::MAX as usize + 1);
   type Iter = core::ops::RangeInclusive<Self>;
   #[inline(always)]
   fn index(self) -> usize {
@@ -149,7 +152,8 @@ unsafe impl ReverseIndexable for u8 {
 
 #[allow(unsafe_code)]
 unsafe impl Indexable for u16 {
-  const SIZE: usize = 65536;
+  const SIZE: usize = u16::MAX as usize + 1;
+  const SET_SIZE: usize = set_size(u16::MAX as usize + 1);
   type Iter = core::ops::RangeInclusive<Self>;
   #[inline(always)]
   fn index(self) -> usize {
@@ -180,7 +184,7 @@ impl<const N: u8> IndexU8<N> {
   /// Returns a new `IndexU8` if it is in a valid range
   #[inline]
   #[must_use]
-  pub fn new(u: u8) -> Option<Self> {
+  pub const fn new(u: u8) -> Option<Self> {
     if u < N {
       Some(Self(u))
     } else {
@@ -190,7 +194,7 @@ impl<const N: u8> IndexU8<N> {
   /// Returns the underlying u8
   #[inline(always)]
   #[must_use]
-  pub fn get(self) -> u8 {
+  pub const fn get(self) -> u8 {
     self.0
   }
 }
@@ -198,6 +202,7 @@ impl<const N: u8> IndexU8<N> {
 #[allow(unsafe_code)]
 unsafe impl<const N: u8> Indexable for IndexU8<N> {
   const SIZE: usize = N as usize;
+  const SET_SIZE: usize = set_size(N as usize);
   type Iter = core::iter::Map<core::ops::Range<u8>, fn(u8) -> Self>;
 
   fn index(self) -> usize {
@@ -229,7 +234,7 @@ impl<const N: u16> IndexU16<N> {
   /// Returns a new `IndexU8` if it is in a valid range
   #[inline]
   #[must_use]
-  pub fn new(u: u16) -> Option<Self> {
+  pub const fn new(u: u16) -> Option<Self> {
     if u < N {
       Some(Self(u))
     } else {
@@ -239,7 +244,7 @@ impl<const N: u16> IndexU16<N> {
   /// Returns the underlying u8
   #[inline(always)]
   #[must_use]
-  pub fn get(self) -> u16 {
+  pub const fn get(self) -> u16 {
     self.0
   }
 }
@@ -247,6 +252,7 @@ impl<const N: u16> IndexU16<N> {
 #[allow(unsafe_code)]
 unsafe impl<const N: u16> Indexable for IndexU16<N> {
   const SIZE: usize = N as usize;
+  const SET_SIZE: usize = set_size(N as usize);
   type Iter = core::iter::Map<core::ops::Range<u16>, fn(u16) -> Self>;
 
   fn index(self) -> usize {
@@ -275,6 +281,7 @@ mod test {
   #[allow(unsafe_code)]
   unsafe impl crate::Indexable for Lowercase {
     const SIZE: usize = 26;
+    const SET_SIZE: usize = crate::set_size(26);
     type Iter = core::iter::Map<core::ops::RangeInclusive<char>, fn(char) -> Lowercase>;
 
     fn index(self) -> usize {
