@@ -100,6 +100,92 @@ pub unsafe trait ReverseIndexable: Indexable {
   fn from_index(u: usize) -> Self;
 }
 
+/// Wrapper around another iterator where items are changed to `Option<Iterator::Item>` and the last value emitted is None.
+#[derive(Clone)]
+pub struct OptionIter<T> {
+  inner: Option<T>,
+}
+
+impl<I, T> Iterator for OptionIter<T>
+where
+  T: Iterator<Item = I>,
+{
+  type Item = Option<I>;
+
+  #[allow(clippy::single_match_else, clippy::option_if_let_else)]
+  fn next(&mut self) -> Option<Self::Item> {
+    if let Some(inner) = &mut self.inner {
+      Some(match inner.next() {
+        Some(v) => Some(v),
+        None => {
+          self.inner = None;
+          None
+        }
+      })
+    } else {
+      None
+    }
+  }
+
+  fn size_hint(&self) -> (usize, Option<usize>) {
+    match &self.inner {
+      Some(t) => {
+        let (min, max) = t.size_hint();
+        (min + 1, max.map(|x| x + 1))
+      }
+      None => (0, Some(0)),
+    }
+  }
+
+  fn count(self) -> usize
+  where
+    Self: Sized,
+  {
+    match self.inner {
+      Some(t) => t.count() + 1,
+      None => 0,
+    }
+  }
+}
+
+impl<T> ExactSizeIterator for OptionIter<T>
+where
+  T: ExactSizeIterator,
+{
+  fn len(&self) -> usize {
+    self.size_hint().0
+  }
+}
+
+#[allow(unsafe_code)]
+unsafe impl<T: Indexable> Indexable for Option<T> {
+  const SIZE: usize = T::SIZE + 1;
+  const SET_SIZE: usize = set_size(T::SIZE + 1);
+  type Iter = OptionIter<T::Iter>;
+
+  fn index(self) -> usize {
+    match self {
+      Some(x) => x.index(),
+      None => T::SIZE,
+    }
+  }
+
+  fn iter() -> Self::Iter {
+    OptionIter { inner: Some(T::iter()) }
+  }
+}
+
+#[allow(unsafe_code)]
+unsafe impl<T: ReverseIndexable> ReverseIndexable for Option<T> {
+  fn from_index(u: usize) -> Self {
+    if u == T::SIZE {
+      None
+    } else {
+      Some(T::from_index(u))
+    }
+  }
+}
+
 #[allow(unsafe_code)]
 unsafe impl Indexable for bool {
   const SIZE: usize = 2;

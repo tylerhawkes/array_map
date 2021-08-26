@@ -85,7 +85,9 @@ impl<K: Indexable, V, const N: usize> ArrayMap<K, V, N> {
       let v = f(&t);
       let index = t.index();
       assert!(index < N);
-      unsafe { array.as_mut_ptr().cast::<V>().add(index).write(v) };
+      unsafe {
+        array.as_mut_ptr().cast::<V>().add(index).write(v);
+      }
       filled[index] = true;
     });
     assert!(
@@ -117,7 +119,9 @@ impl<K: Indexable, V, const N: usize> ArrayMap<K, V, N> {
         Ok(v) => {
           let index = k.index();
           assert!(index < N);
-          unsafe { array.as_mut_ptr().cast::<V>().add(index).write(v) };
+          unsafe {
+            array.as_mut_ptr().cast::<V>().add(index).write(v);
+          };
           filled[index] = true;
         }
         Err(e) => {
@@ -167,7 +171,9 @@ impl<K: Indexable, V, const N: usize> ArrayMap<K, V, N> {
           let index = k.index();
           assert!(index < N);
           // Safety: we only write to values without reading them.
-          unsafe { array.as_mut_ptr().cast::<V>().add(index).write(v) };
+          unsafe {
+            array.as_mut_ptr().cast::<V>().add(index).write(v);
+          }
           filled[index] = true;
         }
         Err(e) => {
@@ -214,7 +220,9 @@ impl<K: Indexable, V, const N: usize> ArrayMap<K, V, N> {
           let index = k.index();
           assert!(index < N);
           // Safety: we only write to values without reading them.
-          unsafe { array.as_mut_ptr().cast::<V>().add(index).write(v) };
+          unsafe {
+            array.as_mut_ptr().cast::<V>().add(index).write(v);
+          }
           filled[index] = true;
         }
         None => {

@@ -392,7 +392,7 @@ impl<K: Indexable, const N: usize> core::ops::BitXor for ArraySet<K, N> {
 impl<K: Indexable, const N: usize> core::ops::BitXorAssign for ArraySet<K, N> {
   #[inline]
   fn bitxor_assign(&mut self, rhs: Self) {
-    *self = *self ^ rhs
+    *self = *self ^ rhs;
   }
 }
 
