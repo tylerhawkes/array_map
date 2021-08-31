@@ -1,6 +1,6 @@
 [package]
 name = "array_map"
-version = "0.3.1"
+version = "0.3.2"
 authors = ["Tyler Hawkes <tyler.hawkes@gmail.com>"]
 edition = "2018"
 description = "Map backed array for fixed size keys with O(1) performance"
@@ -16,7 +16,7 @@ exclude = ["**/*.sh", "array_map_doc_test"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [workspace]
-members = ["array_map_derive", "array_map_doc_test"]
+members = ["array_map_derive"]
 
 [dependencies]
 array_map_derive = { version = "0.3", optional = true, path = "array_map_derive" }
@@ -29,6 +29,7 @@ std = []
 [dev-dependencies]
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
+array_map_derive = { version = "0.3", path = "array_map_derive" }
 
 [package.metadata.docs.rs]
 all-features = true

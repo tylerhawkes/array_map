@@ -15,6 +15,7 @@
 //! also has the benefit that adding a new enum variant forces you to update your code.
 //! ```
 //! use array_map::*;
+//! # use array_map_derive::Indexable;
 //! #[repr(u8)]
 //! #[derive(Indexable)]
 //! enum DetectionType {
@@ -81,6 +82,18 @@ pub unsafe trait Indexable {
   fn iter() -> Self::Iter;
 }
 
+#[inline(always)]
+fn assert_indexable_safe<I: Indexable>() {
+  #[cfg(debug_assertions)]
+  {
+    for (i, k) in I::iter().enumerate().take(I::SIZE + 1) {
+      let index = k.index();
+      assert_eq!(index, i);
+      assert!(index < I::SIZE);
+    }
+  }
+}
+
 /// Allows mapping from an index to a type
 ///
 /// This is trait is unsafe because it needs to uphold the property that it is reflexive.
@@ -100,68 +113,12 @@ pub unsafe trait ReverseIndexable: Indexable {
   fn from_index(u: usize) -> Self;
 }
 
-/// Wrapper around another iterator where items are changed to `Option<Iterator::Item>` and the last value emitted is None.
-#[derive(Clone)]
-pub struct OptionIter<T> {
-  inner: Option<T>,
-}
-
-impl<I, T> Iterator for OptionIter<T>
-where
-  T: Iterator<Item = I>,
-{
-  type Item = Option<I>;
-
-  #[allow(clippy::single_match_else, clippy::option_if_let_else)]
-  fn next(&mut self) -> Option<Self::Item> {
-    if let Some(inner) = &mut self.inner {
-      Some(match inner.next() {
-        Some(v) => Some(v),
-        None => {
-          self.inner = None;
-          None
-        }
-      })
-    } else {
-      None
-    }
-  }
-
-  fn size_hint(&self) -> (usize, Option<usize>) {
-    match &self.inner {
-      Some(t) => {
-        let (min, max) = t.size_hint();
-        (min + 1, max.map(|x| x + 1))
-      }
-      None => (0, Some(0)),
-    }
-  }
-
-  fn count(self) -> usize
-  where
-    Self: Sized,
-  {
-    match self.inner {
-      Some(t) => t.count() + 1,
-      None => 0,
-    }
-  }
-}
-
-impl<T> ExactSizeIterator for OptionIter<T>
-where
-  T: ExactSizeIterator,
-{
-  fn len(&self) -> usize {
-    self.size_hint().0
-  }
-}
-
 #[allow(unsafe_code)]
 unsafe impl<T: Indexable> Indexable for Option<T> {
   const SIZE: usize = T::SIZE + 1;
   const SET_SIZE: usize = set_size(T::SIZE + 1);
-  type Iter = OptionIter<T::Iter>;
+  #[allow(clippy::type_complexity)]
+  type Iter = core::iter::Chain<core::iter::Map<T::Iter, fn(T) -> Option<T>>, core::iter::Once<Option<T>>>;
 
   fn index(self) -> usize {
     match self {
@@ -171,7 +128,7 @@ unsafe impl<T: Indexable> Indexable for Option<T> {
   }
 
   fn iter() -> Self::Iter {
-    OptionIter { inner: Some(T::iter()) }
+    T::iter().map(Some as fn(T) -> Option<T>).chain(core::iter::once(None))
   }
 }
 

@@ -76,9 +76,8 @@ impl<K: Indexable, V, const N: usize> ArrayMap<K, V, N> {
   #[allow(unsafe_code)]
   pub fn from_closure(mut f: impl FnMut(&K) -> V) -> Self {
     assert_eq!(N, K::SIZE);
+    crate::assert_indexable_safe::<K>();
     let mut array = MaybeUninit::<[V; N]>::uninit();
-    debug_assert_eq!(N, K::iter().take(N + 1).count());
-    debug_assert!(K::iter().take(K::SIZE + 1).enumerate().all(|(l, i)| l == i.index()));
     let mut filled = [false; N];
     // Safety: we only write to values without reading them.
     K::iter().for_each(|t| {
@@ -109,9 +108,8 @@ impl<K: Indexable, V, const N: usize> ArrayMap<K, V, N> {
   #[allow(unsafe_code)]
   pub fn try_from_closure<E>(mut f: impl FnMut(&K) -> Result<V, E>) -> Result<Self, E> {
     assert_eq!(N, K::SIZE);
+    crate::assert_indexable_safe::<K>();
     let mut array = MaybeUninit::<[V; N]>::uninit();
-    debug_assert_eq!(N, K::iter().take(N + 1).count());
-    debug_assert!(K::iter().take(K::SIZE + 1).enumerate().all(|(l, i)| l == i.index()));
     let mut filled = [false; N];
     // Safety: we only write to values without reading them.
     for k in K::iter() {
@@ -161,9 +159,8 @@ impl<K: Indexable, V, const N: usize> ArrayMap<K, V, N> {
   #[allow(unsafe_code)]
   pub fn from_results<E, I: IntoIterator<Item = (K, Result<V, E>)>>(iter: I) -> Result<Self, E> {
     assert_eq!(N, K::SIZE);
+    crate::assert_indexable_safe::<K>();
     let mut array = MaybeUninit::<[V; N]>::uninit();
-    debug_assert_eq!(N, K::iter().take(N + 1).count());
-    debug_assert!(K::iter().take(K::SIZE + 1).enumerate().all(|(l, i)| l == i.index()));
     let mut filled = [false; N];
     for (k, r) in iter {
       match r {
@@ -209,9 +206,8 @@ impl<K: Indexable, V, const N: usize> ArrayMap<K, V, N> {
   #[allow(unsafe_code)]
   pub fn from_options<E, I: IntoIterator<Item = (K, Option<V>)>>(iter: I) -> Option<Self> {
     assert_eq!(N, K::SIZE);
+    crate::assert_indexable_safe::<K>();
     let mut array = MaybeUninit::<[V; N]>::uninit();
-    debug_assert_eq!(N, K::iter().take(N + 1).count());
-    debug_assert!(K::iter().take(K::SIZE + 1).enumerate().all(|(l, i)| l == i.index()));
     let mut filled = [false; N];
     for (k, r) in iter {
       #[allow(clippy::single_match_else)]
@@ -257,8 +253,7 @@ impl<K: Indexable, V, const N: usize> ArrayMap<K, V, N> {
   #[inline(always)]
   pub fn iter(&self) -> impl Iterator<Item = (K, &V)> + '_ {
     assert_eq!(N, K::SIZE);
-    debug_assert_eq!(N, K::iter().take(N + 1).count());
-    debug_assert!(K::iter().take(K::SIZE + 1).enumerate().all(|(l, i)| l == i.index()));
+    crate::assert_indexable_safe::<K>();
     K::iter().zip(self.array.iter())
   }
   /// Returns a mutable iterator over all the items in the map
@@ -267,8 +262,7 @@ impl<K: Indexable, V, const N: usize> ArrayMap<K, V, N> {
   #[inline(always)]
   pub fn iter_mut(&mut self) -> impl Iterator<Item = (K, &mut V)> + '_ {
     assert_eq!(N, K::SIZE);
-    debug_assert_eq!(N, K::iter().take(N + 1).count());
-    debug_assert!(K::iter().take(K::SIZE + 1).enumerate().all(|(l, i)| l == i.index()));
+    crate::assert_indexable_safe::<K>();
     K::iter().zip(self.array.iter_mut())
   }
   /// Returns an iterator over all the keys in the map. Note that the keys are owned.
@@ -328,6 +322,20 @@ impl<K, V, const N: usize> core::convert::AsRef<[V; N]> for ArrayMap<K, V, N> {
 impl<K, V, const N: usize> core::convert::AsMut<[V; N]> for ArrayMap<K, V, N> {
   #[inline(always)]
   fn as_mut(&mut self) -> &mut [V; N] {
+    &mut self.array
+  }
+}
+
+impl<K, V, const N: usize> core::convert::AsRef<[V]> for ArrayMap<K, V, N> {
+  #[inline(always)]
+  fn as_ref(&self) -> &[V] {
+    &self.array
+  }
+}
+
+impl<K, V, const N: usize> core::convert::AsMut<[V]> for ArrayMap<K, V, N> {
+  #[inline(always)]
+  fn as_mut(&mut self) -> &mut [V] {
     &mut self.array
   }
 }

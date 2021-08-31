@@ -195,10 +195,8 @@ impl<K: Indexable, const N: usize> ArraySet<K, N> {
   /// Panics if any of the safety requirements in the [`Indexable`](crate::Indexable) trait are wrong
   #[inline]
   pub fn empty() -> Self {
-    assert_eq!(K::SET_SIZE, N);
+    crate::assert_indexable_safe::<K>();
     assert_eq!(set_size(K::SIZE), N);
-    debug_assert_eq!(K::SIZE, K::iter().take(K::SIZE + 1).count());
-    debug_assert!(K::iter().take(K::SIZE + 1).enumerate().all(|(l, i)| l == i.index()));
     Self {
       set: [0; N],
       phantom: PhantomData,
