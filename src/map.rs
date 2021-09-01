@@ -73,31 +73,13 @@ impl<K: Indexable, V, const N: usize> ArrayMap<K, V, N> {
   /// Returns a new [`ArrayMap`] where all the values are initialized to the value returned from each call of the closure.
   /// # Panics
   /// Panics if [`K::iter()`](Indexable::iter()) returns anything other than `N` items or if [`K::index()`](Indexable::iter()) returns a value >= `N`
-  #[allow(unsafe_code)]
   pub fn from_closure(mut f: impl FnMut(&K) -> V) -> Self {
-    assert_eq!(N, K::SIZE);
-    crate::assert_indexable_safe::<K>();
-    let mut array = MaybeUninit::<[V; N]>::uninit();
-    let mut filled = [false; N];
-    // Safety: we only write to values without reading them.
-    K::iter().for_each(|t| {
-      let v = f(&t);
-      let index = t.index();
-      assert!(index < N);
-      unsafe {
-        array.as_mut_ptr().cast::<V>().add(index).write(v);
-      }
-      filled[index] = true;
-    });
-    assert!(
-      filled.iter().all(|f| *f),
-      "Not all indexes have been set. Indexable::index() for {} probably isn't unique",
-      core::any::type_name::<K>()
-    );
-    Self {
-      array: unsafe { array.assume_init() },
-      phantom: PhantomData,
+    let mut array = PanicSafeInit::new();
+    for k in K::iter() {
+      let v = f(&k);
+      array.write(k, v);
     }
+    array.into_map().unwrap()
   }
 
   /// Returns a new [`ArrayMap`] where all the values are initialized to the same value
@@ -105,46 +87,19 @@ impl<K: Indexable, V, const N: usize> ArrayMap<K, V, N> {
   /// Returns an error the first time that the provided closure returns an error.
   /// # Panics
   /// Panics if [`K::iter()`](Indexable::iter()) returns anything other than `N` items or if [`K::index()`](Indexable::iter()) returns a value >= `N`
-  #[allow(unsafe_code)]
   pub fn try_from_closure<E>(mut f: impl FnMut(&K) -> Result<V, E>) -> Result<Self, E> {
-    assert_eq!(N, K::SIZE);
-    crate::assert_indexable_safe::<K>();
-    let mut array = MaybeUninit::<[V; N]>::uninit();
-    let mut filled = [false; N];
-    // Safety: we only write to values without reading them.
+    let mut array = PanicSafeInit::new();
     for k in K::iter() {
       match f(&k) {
         Ok(v) => {
-          let index = k.index();
-          assert!(index < N);
-          unsafe {
-            array.as_mut_ptr().cast::<V>().add(index).write(v);
-          };
-          filled[index] = true;
+          array.write(k, v);
         }
         Err(e) => {
-          // need to drop everything that has already been initialized.
-          if core::mem::needs_drop::<V>() {
-            for index in filled.iter().copied().enumerate().filter_map(|(i, b)| b.then(|| i)) {
-              unsafe {
-                let ptr = array.as_mut_ptr().cast::<V>().add(index);
-                core::ptr::drop_in_place(ptr);
-              }
-            }
-          }
           return Err(e);
         }
       }
     }
-    assert!(
-      filled.iter().all(|f| *f),
-      "Not all indexes have been set. Indexable::index() for {} probably isn't unique",
-      core::any::type_name::<K>()
-    );
-    Ok(Self {
-      array: unsafe { array.assume_init() },
-      phantom: PhantomData,
-    })
+    Ok(array.into_map().unwrap())
   }
 
   /// Collects an iterator of `(K, Result<V, E>)` into a `Result<Self, E>`
@@ -156,95 +111,61 @@ impl<K: Indexable, V, const N: usize> ArrayMap<K, V, N> {
   /// Returns an error with the first emitted error from the provided iterator
   /// # Panics
   /// Panics if any of the safety requirements in the [`Indexable`](crate::Indexable) trait are wrong
-  #[allow(unsafe_code)]
   pub fn from_results<E, I: IntoIterator<Item = (K, Result<V, E>)>>(iter: I) -> Result<Self, E> {
-    assert_eq!(N, K::SIZE);
-    crate::assert_indexable_safe::<K>();
-    let mut array = MaybeUninit::<[V; N]>::uninit();
-    let mut filled = [false; N];
+    let mut array = PanicSafeInit::new();
     for (k, r) in iter {
       match r {
         Ok(v) => {
-          let index = k.index();
-          assert!(index < N);
-          // Safety: we only write to values without reading them.
-          unsafe {
-            array.as_mut_ptr().cast::<V>().add(index).write(v);
-          }
-          filled[index] = true;
+          array.write(k, v);
         }
         Err(e) => {
-          // need to drop everything that has already been initialized.
-          if core::mem::needs_drop::<V>() {
-            for index in filled.iter().copied().enumerate().filter_map(|(i, b)| b.then(|| i)) {
-              unsafe {
-                let ptr = array.as_mut_ptr().cast::<V>().add(index);
-                core::ptr::drop_in_place(ptr);
-              }
-            }
-          }
           return Err(e);
         }
       }
     }
-    assert!(
-      filled.iter().all(|f| *f),
-      "Not all indexes have been set. Indexable::index() for {} probably isn't unique",
-      core::any::type_name::<K>()
-    );
-    Ok(Self {
-      // Safety: We have ensured all values are initialized.
-      array: unsafe { array.assume_init() },
-      phantom: PhantomData,
-    })
+    Ok(array.into_map().unwrap_or_else(|| {
+      panic!(
+        "Not all indexes have been set. Indexable::index() for {} probably isn't unique",
+        core::any::type_name::<K>()
+      )
+    }))
   }
 
   /// Collects an iterator of `(K, Option<V>)` into an `Option<Self>`
   ///
+  /// Returns `None` if any of the values is `None` or if the iterator isn't long enough.
+  ///
   /// # Panics
   /// Panics if any of the safety requirements in the [`Indexable`](crate::Indexable) trait are wrong
-  #[allow(unsafe_code)]
   pub fn from_options<E, I: IntoIterator<Item = (K, Option<V>)>>(iter: I) -> Option<Self> {
-    assert_eq!(N, K::SIZE);
-    crate::assert_indexable_safe::<K>();
-    let mut array = MaybeUninit::<[V; N]>::uninit();
-    let mut filled = [false; N];
+    let mut array = PanicSafeInit::new();
     for (k, r) in iter {
       #[allow(clippy::single_match_else)]
       match r {
-        Some(v) => {
-          let index = k.index();
-          assert!(index < N);
-          // Safety: we only write to values without reading them.
-          unsafe {
-            array.as_mut_ptr().cast::<V>().add(index).write(v);
-          }
-          filled[index] = true;
-        }
+        Some(v) => array.write(k, v),
         None => {
-          // need to drop everything that has already been initialized.
-          if core::mem::needs_drop::<V>() {
-            for index in filled.iter().copied().enumerate().filter_map(|(i, b)| b.then(|| i)) {
-              unsafe {
-                let ptr = array.as_mut_ptr().cast::<V>().add(index);
-                core::ptr::drop_in_place(ptr);
-              }
-            }
+          if !array.filled[k.index()] {
+            return None;
           }
-          return None;
         }
       }
     }
-    assert!(
-      filled.iter().all(|f| *f),
-      "Not all indexes have been set. Indexable::index() for {} probably isn't unique",
-      core::any::type_name::<K>()
-    );
-    Some(Self {
-      // Safety: We have ensured all values are initialized.
-      array: unsafe { array.assume_init() },
-      phantom: PhantomData,
-    })
+    array.into_map()
+  }
+
+  /// Collects an iterator of `(K, V)` into an `Option<Self>`
+  ///
+  /// Returns `None` if there aren't enough elements, or not all values of `K` have been seen.
+  ///
+  /// # Panics
+  /// Panics if any of the safety requirements in the [`Indexable`](crate::Indexable) trait are wrong
+  #[allow(clippy::should_implement_trait)]
+  pub fn from_iter<E, I: IntoIterator<Item = (K, V)>>(iter: I) -> Option<Self> {
+    let mut array = PanicSafeInit::new();
+    for (k, v) in iter {
+      array.write(k, v);
+    }
+    array.into_map()
   }
 
   /// Returns an iterator over all the items in the map. Note that the keys are owned.
@@ -271,6 +192,49 @@ impl<K: Indexable, V, const N: usize> ArrayMap<K, V, N> {
   pub fn keys(&self) -> impl Iterator<Item = K> + '_ {
     K::iter()
   }
+
+  /// Turns this into an array of mutable references to the original.
+  /// Useful for calling [map] when all you need are mutable references
+  ///
+  /// # Panics
+  /// Can only panic if `K::iter()` is unstable or doesn't meet requirements
+  pub fn each_mut(&mut self) -> ArrayMap<K, &mut V, N> {
+    let mut array = PanicSafeInit::new();
+    for (k, k2) in K::iter().zip(K::iter()) {
+      #[allow(unsafe_code)]
+      // Safety: We are borrowing each item once
+      array.write(k, unsafe { &mut *(&mut self[k2] as *mut _) });
+    }
+    array.into_map().unwrap()
+  }
+
+  /// Turns this into an array of references to the original.
+  /// Useful for calling [map] when all you need are references
+  ///
+  /// # Panics
+  /// Can only panic if `K::iter()` is unstable or doesn't meet requirements
+  pub fn each_ref(&self) -> ArrayMap<K, &V, N> {
+    let mut array = PanicSafeInit::new();
+    for (k, k2) in K::iter().zip(K::iter()) {
+      array.write(k, &self[k2]);
+    }
+    array.into_map().unwrap()
+  }
+
+  /// Maps all values in this map using the provided function
+  ///
+  /// # Panics
+  /// Can only panic if `K::iter()` is unstable or doesn't meet requirements
+  pub fn map<U>(self, mut f: impl FnMut(K, V) -> U) -> ArrayMap<K, U, N> {
+    let mut array = PanicSafeInit::new();
+
+    for ((k, k2), v) in K::iter().zip(K::iter()).zip(core::array::IntoIter::new(self.array)) {
+      let u = f(k, v);
+      array.write(k2, u);
+    }
+
+    array.into_map().unwrap()
+  }
 }
 
 impl<K, V, const N: usize> ArrayMap<K, V, N> {
@@ -295,6 +259,16 @@ impl<K: Indexable, V, const N: usize> core::iter::IntoIterator for ArrayMap<K, V
   }
 }
 
+impl<K: Indexable, V, const N: usize> core::iter::FromIterator<(K, V)> for ArrayMap<K, V, N> {
+  fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
+    let mut array = PanicSafeInit::new();
+    for (k, v) in iter {
+      array.write(k, v);
+    }
+    array.into_map().unwrap()
+  }
+}
+
 impl<K: Indexable, V, const N: usize> core::iter::FromIterator<(K, V)> for ArrayMap<K, Option<V>, N> {
   fn from_iter<I: IntoIterator<Item = (K, V)>>(iter: I) -> Self {
     let mut this = Self::from_closure(|_| None);
@@ -312,28 +286,28 @@ impl<K: Indexable, V: Default, const N: usize> Default for ArrayMap<K, V, N> {
   }
 }
 
-impl<K, V, const N: usize> core::convert::AsRef<[V; N]> for ArrayMap<K, V, N> {
+impl<K, V, const N: usize> AsRef<[V; N]> for ArrayMap<K, V, N> {
   #[inline(always)]
   fn as_ref(&self) -> &[V; N] {
     &self.array
   }
 }
 
-impl<K, V, const N: usize> core::convert::AsMut<[V; N]> for ArrayMap<K, V, N> {
+impl<K, V, const N: usize> AsMut<[V; N]> for ArrayMap<K, V, N> {
   #[inline(always)]
   fn as_mut(&mut self) -> &mut [V; N] {
     &mut self.array
   }
 }
 
-impl<K, V, const N: usize> core::convert::AsRef<[V]> for ArrayMap<K, V, N> {
+impl<K, V, const N: usize> AsRef<[V]> for ArrayMap<K, V, N> {
   #[inline(always)]
   fn as_ref(&self) -> &[V] {
     &self.array
   }
 }
 
-impl<K, V, const N: usize> core::convert::AsMut<[V]> for ArrayMap<K, V, N> {
+impl<K, V, const N: usize> AsMut<[V]> for ArrayMap<K, V, N> {
   #[inline(always)]
   fn as_mut(&mut self) -> &mut [V] {
     &mut self.array
@@ -358,10 +332,64 @@ impl<K: Indexable, V, const N: usize> core::ops::IndexMut<K> for ArrayMap<K, V, 
   }
 }
 
+struct PanicSafeInit<K: Indexable, V, const N: usize> {
+  filled: [bool; N],
+  array: MaybeUninit<[V; N]>,
+  _phantom: PhantomData<*const K>,
+}
+
+impl<K: Indexable, V, const N: usize> PanicSafeInit<K, V, N> {
+  pub fn new() -> Self {
+    assert_eq!(K::SIZE, N);
+    crate::assert_indexable_safe::<K>();
+    Self {
+      filled: [false; N],
+      array: MaybeUninit::uninit(),
+      _phantom: PhantomData,
+    }
+  }
+  pub fn write(&mut self, k: K, v: V) {
+    let index = k.index();
+    #[allow(unsafe_code)]
+    // Safety: We are only writing to values and never read from them.
+    unsafe {
+      self.array.as_mut_ptr().cast::<V>().add(index).write(v);
+      self.filled[index] = true;
+    }
+  }
+  pub fn into_map(self) -> Option<ArrayMap<K, V, N>> {
+    self.filled.iter().all(|x| *x).then(|| {
+      let no_drop = core::mem::ManuallyDrop::new(self);
+      #[allow(unsafe_code)]
+      // The array is known to be initialized, though this might be UB?
+      let array = unsafe { core::ptr::read(&no_drop.array).assume_init() };
+      ArrayMap::new(array)
+    })
+  }
+}
+
+impl<K: Indexable, V, const N: usize> Drop for PanicSafeInit<K, V, N> {
+  fn drop(&mut self) {
+    if core::mem::needs_drop::<V>() {
+      for k in K::iter() {
+        let index = k.index();
+        if self.filled[index] {
+          #[allow(unsafe_code)]
+          // Safety: We only drop items that are previously initialized
+          unsafe {
+            core::ptr::drop_in_place(self.array.as_mut_ptr().cast::<V>().add(index));
+          }
+        }
+      }
+    }
+  }
+}
+
 #[cfg(test)]
 mod test {
   use super::*;
   use crate::test::*;
+  use crate::IndexU8;
 
   fn send_sync_traits<
     K: Indexable,
@@ -375,8 +403,8 @@ mod test {
       + PartialEq
       + Eq
       + core::fmt::Debug
-      + core::convert::AsRef<[V; N]>
-      + core::convert::AsMut<[V; N]>
+      + AsRef<[V; N]>
+      + AsMut<[V; N]>
       + core::ops::Index<K>
       + core::ops::IndexMut<K>,
     const N: usize,
@@ -410,5 +438,19 @@ mod test {
     test_traits::<bool, Option<(u8, u8)>, _, { bool::SIZE }>(|b| Some((b as u8 + 1, b as u8)));
     test_traits::<u8, u32, _, { u8::SIZE }>(|u| u as u32 + 1);
     test_traits::<Lowercase, &'static str, _, { Lowercase::SIZE }>(|_| "abc");
+  }
+
+  #[test]
+  fn test_map() {
+    let mut m1 = ArrayMap::<IndexU8<5>, u8, 5>::new([0_u8, 1, 2, 3, 4]);
+    let mut r = m1.each_mut();
+    for (k, v) in r.iter_mut() {
+      assert_eq!(k.get(), **v);
+      **v += 1;
+    }
+    let r = m1.each_ref();
+    for (k, v) in r.iter() {
+      assert_eq!(k.get() + 1, **v);
+    }
   }
 }

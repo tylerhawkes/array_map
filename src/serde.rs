@@ -52,7 +52,9 @@ impl<'de, K: serde::Deserialize<'de> + Indexable, V: serde::Deserialize<'de>, co
           let index = k.index();
           assert!(index < N);
           // Safety: we can only write to uninit before trying to read them which we do here
-          unsafe { self.array.as_mut_ptr().cast::<V>().add(index).write(v) };
+          unsafe {
+            self.array.as_mut_ptr().cast::<V>().add(index).write(v);
+          }
           self.filled[index] = true;
         }
         let count = self.filled.iter().filter(|f| **f).count();

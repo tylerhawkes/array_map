@@ -122,8 +122,7 @@ impl<K: Indexable, const N: usize> ArraySet<K, N> {
   }
 
   #[inline(always)]
-  fn query<R>(&self, k: K, f: impl FnOnce(u8, u8) -> R) -> R {
-    let index = k.index();
+  fn query<R>(&self, index: usize, f: impl FnOnce(u8, u8) -> R) -> R {
     let byte = index >> 3;
     assert!(byte < N);
     let bit = index & 0x7;
@@ -132,8 +131,7 @@ impl<K: Indexable, const N: usize> ArraySet<K, N> {
   }
 
   #[inline(always)]
-  fn mutate<R>(&mut self, k: K, f: impl FnOnce(&mut u8, u8) -> R) -> R {
-    let index = k.index();
+  fn mutate<R>(&mut self, index: usize, f: impl FnOnce(&mut u8, u8) -> R) -> R {
     let byte = index >> 3;
     assert!(byte < N);
     let bit = index & 0x7;
@@ -145,13 +143,42 @@ impl<K: Indexable, const N: usize> ArraySet<K, N> {
   #[inline]
   #[must_use]
   pub fn contains(&self, k: K) -> bool {
-    self.query(k, |b, m| b & m != 0)
+    // Safety: This is a valid index
+    #[allow(unsafe_code)]
+    unsafe {
+      self.contains_index(k.index())
+    }
+  }
+
+  /// Determines whether a key already exists in the set
+  ///
+  /// # Safety
+  /// Index must be a valid index returned by `K.index()`
+  #[inline]
+  #[must_use]
+  #[allow(unsafe_code)]
+  pub(crate) unsafe fn contains_index(&self, index: usize) -> bool {
+    self.query(index, |b, m| b & m != 0)
   }
 
   /// Inserts a key into the set and returns whether it was already contained in the set
   #[inline]
   pub fn insert(&mut self, k: K) -> bool {
-    self.mutate(k, |b, m| {
+    // Safety: This is a valid index
+    #[allow(unsafe_code)]
+    unsafe {
+      self.insert_index(k.index())
+    }
+  }
+
+  /// Inserts a key into the set and returns whether it was already contained in the set
+  ///
+  /// # Safety
+  /// Index must be a valid index returned by `K.index()`
+  #[inline(always)]
+  #[allow(unsafe_code)]
+  pub(crate) unsafe fn insert_index(&mut self, index: usize) -> bool {
+    self.mutate(index, |b, m| {
       let contained = *b & m != 0;
       *b |= m;
       contained
@@ -161,7 +188,21 @@ impl<K: Indexable, const N: usize> ArraySet<K, N> {
   /// Removes a key from the set and returns whether it was already contained in the set
   #[inline]
   pub fn remove(&mut self, k: K) -> bool {
-    self.mutate(k, |b, m| {
+    // Safety: This is a valid index
+    #[allow(unsafe_code)]
+    unsafe {
+      self.remove_index(k.index())
+    }
+  }
+
+  /// Removes a key from the set and returns whether it was already contained in the set
+  ///
+  /// # Safety
+  /// Index must be a valid index returned by `K.index()`
+  #[inline(always)]
+  #[allow(unsafe_code)]
+  pub(crate) unsafe fn remove_index(&mut self, index: usize) -> bool {
+    self.mutate(index, |b, m| {
       let contained = *b & m != 0;
       *b &= !m;
       contained
