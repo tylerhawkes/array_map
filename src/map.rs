@@ -73,7 +73,7 @@ impl<K: Indexable, V, const N: usize> ArrayMap<K, V, N> {
   /// Returns a new [`ArrayMap`] where all the values are initialized to the value returned from each call of the closure.
   /// # Panics
   /// Panics if [`K::iter()`](Indexable::iter()) returns anything other than `N` items or if [`K::index()`](Indexable::iter()) returns a value >= `N`
-  pub fn from_closure(mut f: impl FnMut(&K) -> V) -> Self {
+  pub fn from_closure<F: FnMut(&K) -> V>(mut f: F) -> Self {
     let mut array = PanicSafeInit::new();
     for k in K::iter() {
       let v = f(&k);
@@ -87,7 +87,7 @@ impl<K: Indexable, V, const N: usize> ArrayMap<K, V, N> {
   /// Returns an error the first time that the provided closure returns an error.
   /// # Panics
   /// Panics if [`K::iter()`](Indexable::iter()) returns anything other than `N` items or if [`K::index()`](Indexable::iter()) returns a value >= `N`
-  pub fn try_from_closure<E>(mut f: impl FnMut(&K) -> Result<V, E>) -> Result<Self, E> {
+  pub fn try_from_closure<E, F: FnMut(&K) -> Result<V, E>>(mut f: F) -> Result<Self, E> {
     let mut array = PanicSafeInit::new();
     for k in K::iter() {
       match f(&k) {
@@ -225,7 +225,7 @@ impl<K: Indexable, V, const N: usize> ArrayMap<K, V, N> {
   ///
   /// # Panics
   /// Can only panic if `K::iter()` is unstable or doesn't meet requirements
-  pub fn map<U>(self, mut f: impl FnMut(K, V) -> U) -> ArrayMap<K, U, N> {
+  pub fn map<U, F: FnMut(K, V) -> U>(self, mut f: F) -> ArrayMap<K, U, N> {
     let mut array = PanicSafeInit::new();
 
     for ((k, k2), v) in K::iter().zip(K::iter()).zip(core::array::IntoIter::new(self.array)) {

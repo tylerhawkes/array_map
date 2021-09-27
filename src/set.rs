@@ -122,7 +122,7 @@ impl<K: Indexable, const N: usize> ArraySet<K, N> {
   }
 
   #[inline(always)]
-  fn query<R>(&self, index: usize, f: impl FnOnce(u8, u8) -> R) -> R {
+  fn query<R, F: FnOnce(u8, u8) -> R>(&self, index: usize, f: F) -> R {
     let byte = index >> 3;
     assert!(byte < N);
     let bit = index & 0x7;
@@ -131,7 +131,7 @@ impl<K: Indexable, const N: usize> ArraySet<K, N> {
   }
 
   #[inline(always)]
-  fn mutate<R>(&mut self, index: usize, f: impl FnOnce(&mut u8, u8) -> R) -> R {
+  fn mutate<R, F: FnOnce(&mut u8, u8) -> R>(&mut self, index: usize, f: F) -> R {
     let byte = index >> 3;
     assert!(byte < N);
     let bit = index & 0x7;
