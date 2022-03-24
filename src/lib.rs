@@ -48,14 +48,20 @@ mod map;
 #[cfg(feature = "serde")]
 mod serde;
 mod set;
+mod three_tuple;
+mod two_tuple;
 
 #[cfg(feature = "array_map_derive")]
 pub use array_map_derive::Indexable;
 use core::convert::TryInto;
 pub use map::*;
 pub use set::*;
+pub use three_tuple::*;
+pub use two_tuple::*;
 
 /// Allows mapping from a type to an index
+///
+/// # Safety
 ///
 /// This trait is unsafe because there are a few other requirements that need to be met:
 /// * The indexes of self need to be contiguous and need to be returned in order from `iter()`
@@ -95,6 +101,8 @@ fn assert_indexable_safe<I: Indexable>() {
 }
 
 /// Allows mapping from an index to a type
+///
+/// # Safety
 ///
 /// This is trait is unsafe because it needs to uphold the property that it is reflexive.
 /// For example:
@@ -150,24 +158,18 @@ unsafe impl Indexable for bool {
   type Iter = core::array::IntoIter<bool, 2>;
   #[inline(always)]
   fn index(self) -> usize {
-    self as usize
+    usize::from(self)
   }
   #[inline(always)]
   fn iter() -> Self::Iter {
-    core::array::IntoIter::new([false, true])
+    [false, true].into_iter()
   }
 }
 
 #[allow(unsafe_code)]
 unsafe impl ReverseIndexable for bool {
   fn from_index(u: usize) -> Self {
-    if u == 0 {
-      false
-    } else if u == 1 {
-      true
-    } else {
-      panic!("Invalid bool index provided {}", u)
-    }
+    [false, true][u]
   }
 }
 
@@ -265,6 +267,12 @@ unsafe impl<const N: u8> ReverseIndexable for IndexU8<N> {
   }
 }
 
+impl<const N: u8> core::fmt::Display for IndexU8<N> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    self.0.fmt(f)
+  }
+}
+
 /// This struct implements [`Indexable`] and allows all values in `0..N`
 #[derive(Copy, Clone, Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
@@ -312,6 +320,12 @@ unsafe impl<const N: u16> ReverseIndexable for IndexU16<N> {
   fn from_index(u: usize) -> Self {
     let u: u16 = u.try_into().unwrap_or_else(|_| panic!("Invalid IndexU8 index provided {}", u));
     Self::new(u).unwrap_or_else(|| panic!("Invalid IndexU8 index provided {}", u))
+  }
+}
+
+impl<const N: u16> core::fmt::Display for IndexU16<N> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    self.0.fmt(f)
   }
 }
 

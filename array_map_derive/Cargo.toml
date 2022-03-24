@@ -1,8 +1,8 @@
 [package]
 name = "array_map_derive"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Tyler Hawkes <tyler.hawkes@gmail.com>"]
-edition = "2018"
+edition = "2021"
 description = "Map backed array for fixed size keys with O(1) performance"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/tylerhawkes/array_map"

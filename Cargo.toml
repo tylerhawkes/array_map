@@ -1,8 +1,8 @@
 [package]
 name = "array_map"
-version = "0.3.4"
+version = "0.4.0"
 authors = ["Tyler Hawkes <tyler.hawkes@gmail.com>"]
-edition = "2018"
+edition = "2021"
 description = "Map backed array for fixed size keys with O(1) performance"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/tylerhawkes/array_map"
@@ -19,7 +19,7 @@ exclude = ["**/*.sh", "array_map_doc_test"]
 members = ["array_map_derive"]
 
 [dependencies]
-array_map_derive = { version = "0.3", optional = true, path = "array_map_derive" }
+array_map_derive = { version = "0.4", optional = true, path = "array_map_derive" }
 serde = { version = "1", optional = true, default_features = false, features = ["derive"] }
 
 [features]
@@ -29,7 +29,7 @@ std = []
 [dev-dependencies]
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
-array_map_derive = { version = "0.3", path = "array_map_derive" }
+array_map_derive = { version = "0.4", path = "array_map_derive" }
 
 [package.metadata.docs.rs]
 all-features = true

@@ -77,7 +77,7 @@ impl<K: Indexable, const N: usize> core::fmt::Binary for ArraySet<K, N> {
         }
       }
     }
-    for b in self.set.iter().rev().skip(unfilled_last as usize).copied() {
+    for b in self.set.iter().rev().skip(usize::from(unfilled_last)).copied() {
       for mask in (0..u8::BITS).rev() {
         if b & (1 << mask) > 0 {
           f.write_char('1')?;
@@ -314,7 +314,10 @@ impl<K: Indexable, const N: usize> core::iter::IntoIterator for ArraySet<K, N> {
   }
 }
 
-impl<K: Indexable, const N: usize> core::iter::ExactSizeIterator for IntoIter<K, N> {}
+impl<K: Indexable, const N: usize> core::iter::ExactSizeIterator for IntoIter<K, N> where
+  <K as Indexable>::Iter: core::iter::ExactSizeIterator
+{
+}
 
 impl<K: Indexable, const N: usize> core::iter::FromIterator<K> for ArraySet<K, N> {
   fn from_iter<I: IntoIterator<Item = K>>(iter: I) -> Self {
@@ -323,6 +326,30 @@ impl<K: Indexable, const N: usize> core::iter::FromIterator<K> for ArraySet<K, N
       set.insert(k);
     }
     set
+  }
+}
+
+impl<K: Indexable, const N: usize> core::ops::Index<K> for ArraySet<K, N> {
+  type Output = bool;
+
+  fn index(&self, index: K) -> &Self::Output {
+    static BOOL: [bool; 2] = [false, true];
+    &BOOL[usize::from(self.contains(index))]
+  }
+}
+impl<K: Indexable, const N: usize> core::ops::Index<usize> for ArraySet<K, N> {
+  type Output = bool;
+
+  fn index(&self, index: usize) -> &Self::Output {
+    static BOOL: [bool; 2] = [false, true];
+    assert!(
+      index < K::SIZE,
+      "Index out of bounds: the len is {} but the index is {index}",
+      K::SIZE
+    );
+    // # Safety: We have validated that the index is in the correct range
+    #[allow(unsafe_code)]
+    &BOOL[usize::from(unsafe { self.contains_index(index) })]
   }
 }
 

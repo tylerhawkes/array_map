@@ -25,7 +25,6 @@ impl<K, V, const N: usize> ArrayMap<K, V, N> {
   /// Function that can be used in const contexts to get a new `ArrayMap`.
   ///
   /// Callers should ensure that each `V` in the array matches the return of `index()` from `K` to get back expected results.
-  #[allow(unsafe_code)]
   pub const fn new(array: [V; N]) -> Self {
     Self {
       array,
@@ -177,6 +176,7 @@ impl<K: Indexable, V, const N: usize> ArrayMap<K, V, N> {
     crate::assert_indexable_safe::<K>();
     K::iter().zip(self.array.iter())
   }
+
   /// Returns a mutable iterator over all the items in the map
   /// # Panics
   /// Panics if any of the safety requirements in the [`Indexable`](crate::Indexable) trait are wrong
@@ -186,6 +186,7 @@ impl<K: Indexable, V, const N: usize> ArrayMap<K, V, N> {
     crate::assert_indexable_safe::<K>();
     K::iter().zip(self.array.iter_mut())
   }
+
   /// Returns an iterator over all the keys in the map. Note that the keys are owned.
   #[inline(always)]
   #[allow(clippy::unused_self)]
@@ -194,29 +195,27 @@ impl<K: Indexable, V, const N: usize> ArrayMap<K, V, N> {
   }
 
   /// Turns this into an array of mutable references to the original.
-  /// Useful for calling [map] when all you need are mutable references
+  /// Useful for calling `map` when all you need are mutable references
   ///
   /// # Panics
   /// Can only panic if `K::iter()` is unstable or doesn't meet requirements
   pub fn each_mut(&mut self) -> ArrayMap<K, &mut V, N> {
     let mut array = PanicSafeInit::new();
-    for (k, k2) in K::iter().zip(K::iter()) {
-      #[allow(unsafe_code)]
-      // Safety: We are borrowing each item once
-      array.write(k, unsafe { &mut *(&mut self[k2] as *mut _) });
+    for (k, v) in self.iter_mut() {
+      array.write(k, v);
     }
     array.into_map().unwrap()
   }
 
   /// Turns this into an array of references to the original.
-  /// Useful for calling [map] when all you need are references
+  /// Useful for calling `map` when all you need are references
   ///
   /// # Panics
   /// Can only panic if `K::iter()` is unstable or doesn't meet requirements
   pub fn each_ref(&self) -> ArrayMap<K, &V, N> {
     let mut array = PanicSafeInit::new();
-    for (k, k2) in K::iter().zip(K::iter()) {
-      array.write(k, &self[k2]);
+    for (k, v) in self.iter() {
+      array.write(k, v);
     }
     array.into_map().unwrap()
   }
@@ -225,12 +224,12 @@ impl<K: Indexable, V, const N: usize> ArrayMap<K, V, N> {
   ///
   /// # Panics
   /// Can only panic if `K::iter()` is unstable or doesn't meet requirements
-  pub fn map<U, F: FnMut(K, V) -> U>(self, mut f: F) -> ArrayMap<K, U, N> {
+  pub fn map<U, F: FnMut(&K, V) -> U>(self, mut f: F) -> ArrayMap<K, U, N> {
     let mut array = PanicSafeInit::new();
 
-    for ((k, k2), v) in K::iter().zip(K::iter()).zip(core::array::IntoIter::new(self.array)) {
-      let u = f(k, v);
-      array.write(k2, u);
+    for (k, v) in self {
+      let u = f(&k, v);
+      array.write(k, u);
     }
 
     array.into_map().unwrap()
@@ -255,7 +254,9 @@ impl<K: Indexable, V, const N: usize> core::iter::IntoIterator for ArrayMap<K, V
   type IntoIter = core::iter::Zip<K::Iter, core::array::IntoIter<V, N>>;
 
   fn into_iter(self) -> Self::IntoIter {
-    K::iter().zip(core::array::IntoIter::new(self.array))
+    assert_eq!(N, K::SIZE);
+    crate::assert_indexable_safe::<K>();
+    K::iter().zip(self.array.into_iter())
   }
 }
 
@@ -329,6 +330,24 @@ impl<K: Indexable, V, const N: usize> core::ops::IndexMut<K> for ArrayMap<K, V, 
   fn index_mut(&mut self, index: K) -> &mut Self::Output {
     assert_eq!(N, K::SIZE);
     &mut self.array[index.index()]
+  }
+}
+
+impl<K: Indexable, V, const N: usize> core::ops::Index<usize> for ArrayMap<K, V, N> {
+  type Output = V;
+
+  #[inline(always)]
+  fn index(&self, index: usize) -> &Self::Output {
+    assert_eq!(N, K::SIZE);
+    &self.array[index]
+  }
+}
+
+impl<K: Indexable, V, const N: usize> core::ops::IndexMut<usize> for ArrayMap<K, V, N> {
+  #[inline(always)]
+  fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+    assert_eq!(N, K::SIZE);
+    &mut self.array[index]
   }
 }
 
@@ -443,14 +462,14 @@ mod test {
   #[test]
   fn test_map() {
     let mut m1 = ArrayMap::<IndexU8<5>, u8, 5>::new([0_u8, 1, 2, 3, 4]);
-    let mut r = m1.each_mut();
-    for (k, v) in r.iter_mut() {
-      assert_eq!(k.get(), **v);
-      **v += 1;
+    let r = m1.each_mut();
+    for (k, v) in r.into_iter() {
+      assert_eq!(k.get(), *v);
+      *v += 1;
     }
     let r = m1.each_ref();
-    for (k, v) in r.iter() {
-      assert_eq!(k.get() + 1, **v);
+    for (k, v) in r.into_iter() {
+      assert_eq!(k.get() + 1, *v);
     }
   }
 }
